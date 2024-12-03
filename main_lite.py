@@ -1,13 +1,13 @@
-import time
-import numpy as np
 import pandas as pd
-from binance.client import Client
-from binance.enums import *
-from config.api import API_KEY, API_SECRET
-
-
+import time
 import json
 import os
+
+from binance.client import Client
+from binance.enums import *
+
+from config.api import API_KEY, API_SECRET
+from config.paths import LOG_FILE
 
 client = Client(API_KEY, API_SECRET)
 
@@ -17,31 +17,27 @@ interval = Client.KLINE_INTERVAL_5MINUTE
 stoch_period = 14
 k_period = 3
 d_period = 3
-leverage = 5
+leverage = 10
 oversold_threshold = 20
 overbought_threshold = 80
 
 # Path to save the log file
-LOG_FILE = 'trade_logs.json'
+
 
 # Function to log trades
 def log_trade(data):
-    # Check if the log file exists, if not, create it
+
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, 'w') as f:
-            json.dump([], f)  # Initialize the log file as an empty list
+            json.dump([], f) 
 
     # Append new trade log to the file
     with open(LOG_FILE, 'r') as f:
-        logs = json.load(f)  # Load existing logs
-    
-    logs.append(data)  # Append the new log
+        logs = json.load(f)
+    logs.append(data) 
 
     with open(LOG_FILE, 'w') as f:
-        json.dump(logs, f, indent=4)  # Save back to the file
-
-
-
+        json.dump(logs, f, indent=4)
 
 # Calculate Stochastic Oscillator
 def calculate_stoch(high, low, close, stoch_period, k_period, d_period):
@@ -97,7 +93,7 @@ def round_quantity(symbol, quantity):
             min_qty = float(filt['minQty'])
             step_size = float(filt['stepSize'])
             quantity = max(quantity, min_qty)
-            quantity = round(quantity - (quantity % step_size), 8)  # Adjust to step size
+            quantity = round(quantity - (quantity % step_size), 8) 
             return quantity
     return quantity
 
@@ -237,15 +233,14 @@ def main():
 
             # Close Positions
             if position > 0:  # Long position open
-                if unrealized_profit >= 10:  # Remove "Stochastic K < D" condition
-                    print("Closing LONG position")
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 10")
+                if unrealized_profit >= 10:
+                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 5")
                 elif stoch_k.iloc[-1] > overbought_threshold:
                     close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic reached overbought threshold")
 
             elif position < 0:  # Short position open
-                if unrealized_profit >= 10:  # Remove "Stochastic K > D" condition
-                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 10")
+                if unrealized_profit >= 5:
+                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 5")
                 elif stoch_k.iloc[-1] < oversold_threshold:
                     close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic reached oversold threshold")
 

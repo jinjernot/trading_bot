@@ -13,7 +13,7 @@ client = Client(API_KEY, API_SECRET)
 
 # Parameters
 symbol = 'BTCUSDT'
-interval = Client.KLINE_INTERVAL_1MINUTE
+interval = Client.KLINE_INTERVAL_5MINUTE
 stoch_period = 14
 k_period = 3
 d_period = 3
@@ -71,8 +71,6 @@ def get_symbol_info(symbol):
             return s
     return None
 
-        
-          
 # Fetch available USDT balance
 def get_usdt_balance():
     balance = client.futures_account_balance()
@@ -262,8 +260,8 @@ def main():
                       stoch_k.iloc[-1] > overbought_threshold):
                     place_order_with_log(symbol, SIDE_SELL, usdt_balance, "Bearish crossover detected")  
             
-            print("Sleeping for 10 seconds...\n")
-            time.sleep(10) 
+            print("Sleeping for 60 seconds...\n")
+            time.sleep(60) 
         except Exception as e:
             print(f"Error in main loop: {e}")
             time.sleep(10)

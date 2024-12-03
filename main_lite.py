@@ -5,6 +5,7 @@ from binance.client import Client
 from binance.enums import *
 from config.api import API_KEY, API_SECRET
 
+
 import json
 import os
 
@@ -16,7 +17,7 @@ interval = Client.KLINE_INTERVAL_1MINUTE
 stoch_period = 14
 k_period = 3
 d_period = 3
-leverage = 10
+leverage = 5
 oversold_threshold = 20
 overbought_threshold = 80
 
@@ -70,70 +71,6 @@ def get_symbol_info(symbol):
             return s
     return None
 
-# Adjust quantity to match Binance rules
-def round_quantity(symbol, quantity):
-    symbol_info = get_symbol_info(symbol)
-    for filt in symbol_info['filters']:
-        if filt['filterType'] == 'LOT_SIZE':
-            min_qty = float(filt['minQty'])
-            step_size = float(filt['stepSize'])
-            quantity = max(quantity, min_qty)
-            quantity = round(quantity - (quantity % step_size), 8)  # Adjust to step size
-            return quantity
-    return quantity
-
-# Function to get the current market price of the symbol (BTCUSDT)
-def get_market_price(symbol):
-    try:
-        price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
-        return price
-    except Exception as e:
-        print(f"Error getting market price: {e}")
-        return None
-
-def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
-    trade_amount = usdt_balance * 0.3  # 30% of available USDT balance
-    print(f"30% of available USDT balance for trade: {trade_amount}")
-
-    try:
-        price = get_market_price(symbol)
-        if price is None:
-            return
-
-        quantity = trade_amount / price
-        quantity = round(quantity, 3)  # Adjust to Binance's minimum step size
-
-        notional = price * quantity
-        if notional < 100:
-            print(f"Notional value {notional} is too small, adjusting quantity to meet minimum notional.")
-            quantity = 100 / price
-            quantity = round(quantity, 3)
-
-        if quantity <= 0:
-            print("Calculated quantity is too small to trade.")
-            return
-
-        print(f"Placing order: {side} {quantity} {symbol}")
-        order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type=ORDER_TYPE_MARKET,
-            quantity=quantity
-        )
-        print(f"Order placed successfully: {order}")
-
-        # Log trade details
-        log_trade({
-            "USDT_balance_before_trade": usdt_balance,
-            "trade_side": side,
-            "trade_quantity": quantity,
-            "trade_price": price,
-            "reason_to_open": reason_to_open,
-            "timestamp": pd.Timestamp.now().isoformat()
-        })
-
-    except Exception as e:
-        print(f"Error placing order: {e}")
         
           
 # Fetch available USDT balance
@@ -154,6 +91,86 @@ def get_position(symbol):
             return position_amt, unrealized_profit
     return 0, 0  # No open position
 
+# Adjust quantity to match Binance rules
+def round_quantity(symbol, quantity):
+    symbol_info = get_symbol_info(symbol)
+    for filt in symbol_info['filters']:
+        if filt['filterType'] == 'LOT_SIZE':
+            min_qty = float(filt['minQty'])
+            step_size = float(filt['stepSize'])
+            quantity = max(quantity, min_qty)
+            quantity = round(quantity - (quantity % step_size), 8)  # Adjust to step size
+            return quantity
+    return quantity
+
+# Function to get the current market price of the symbol (BTCUSDT)
+def get_market_price(symbol):
+    try:
+        price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
+        return price
+    except Exception as e:
+        print(f"Error getting market price: {e}")
+        return None
+    
+# Adjust price to match Binance rules
+def round_price(symbol, price):
+    symbol_info = get_symbol_info(symbol)
+    for filt in symbol_info['filters']:
+        if filt['filterType'] == 'PRICE_FILTER':
+            tick_size = float(filt['tickSize'])
+            price = round(price - (price % tick_size), 8)  # Align price with tick size
+            return price
+    return price
+
+def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
+    trade_amount = usdt_balance * 0.32  # 30% of available USDT balance
+    print(f"30% of available USDT balance for trade: {trade_amount}")
+
+    try:
+        price = get_market_price(symbol)
+        if price is None:
+            return
+
+        # Adjust the price for limit order
+        limit_price = round_price(symbol, price)
+        
+        quantity = trade_amount / limit_price
+        quantity = round(quantity, 3)  # Adjust to Binance's minimum step size
+
+        notional = limit_price * quantity
+        if notional < 100:
+            print(f"Notional value {notional} is too small, adjusting quantity to meet minimum notional.")
+            quantity = 100 / limit_price
+            quantity = round(quantity, 3)
+
+        if quantity <= 0:
+            print("Calculated quantity is too small to trade.")
+            return
+
+        print(f"Placing limit order: {side} {quantity} {symbol} at {limit_price}")
+        order = client.futures_create_order(
+            symbol=symbol,
+            side=side,
+            type=ORDER_TYPE_LIMIT,
+            quantity=quantity,
+            price=limit_price,
+            timeInForce=TIME_IN_FORCE_GTC  # Good 'til Canceled
+        )
+        print(f"Order placed successfully: {order}")
+
+        # Log trade details
+        log_trade({
+            "USDT_balance_before_trade": usdt_balance,
+            "trade_side": side,
+            "trade_quantity": quantity,
+            "trade_price": limit_price,
+            "reason_to_open": reason_to_open,
+            "timestamp": pd.Timestamp.now().isoformat()
+        })
+
+    except Exception as e:
+        print(f"Error placing order: {e}")
+
 def close_position_with_log(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
@@ -161,11 +178,22 @@ def close_position_with_log(symbol, side, quantity, reason_to_close):
         if price is None:
             return
 
+        # Adjust the price slightly for limit orders
+        if side == SIDE_BUY:
+            limit_price = price * 1.01  # 1% above current price
+        elif side == SIDE_SELL:
+            limit_price = price * 0.99  # 1% below current price
+
+        # Align limit price with the tick size
+        limit_price = round_price(symbol, limit_price)
+
         order = client.futures_create_order(
             symbol=symbol,
             side=side,
-            type=ORDER_TYPE_MARKET,
-            quantity=quantity
+            type=ORDER_TYPE_LIMIT,
+            quantity=quantity,
+            price=limit_price,  # Use the aligned price
+            timeInForce=TIME_IN_FORCE_GTC  # Good Till Canceled
         )
         print(f"Position closed successfully: {order}")
 
@@ -176,15 +204,14 @@ def close_position_with_log(symbol, side, quantity, reason_to_close):
         log_trade({
             "closing_side": side,
             "closing_quantity": quantity,
-            "closing_price": price,
+            "closing_price": limit_price,
             "reason_to_close": reason_to_close,
             "new_USDT_balance": new_usdt_balance,
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
     except Exception as e:
-        print(f"Error closing position: {e}")
-        
+        print(f"Error closing position: {e}")                
 # Update the main loop to use the new functions
 def main():
     print(f"Setting leverage for {symbol} to {leverage}")
@@ -212,15 +239,15 @@ def main():
 
             # Close Positions
             if position > 0:  # Long position open
-                if (stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]) or unrealized_profit >= 10:
+                if unrealized_profit >= 10:  # Remove "Stochastic K < D" condition
                     print("Closing LONG position")
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic K < D or unrealized profit >= 10")
+                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 10")
                 elif stoch_k.iloc[-1] > overbought_threshold:
                     close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic reached overbought threshold")
 
             elif position < 0:  # Short position open
-                if (stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]) or unrealized_profit >= 10:
-                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic K > D or unrealized profit >= 10")
+                if unrealized_profit >= 10:  # Remove "Stochastic K > D" condition
+                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 10")
                 elif stoch_k.iloc[-1] < oversold_threshold:
                     close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic reached oversold threshold")
 
@@ -240,6 +267,6 @@ def main():
         except Exception as e:
             print(f"Error in main loop: {e}")
             time.sleep(10)
-
+            
 if __name__ == "__main__":
     main()

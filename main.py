@@ -9,13 +9,13 @@ client = Client(API_KEY, API_SECRET)
 
 # Parameters
 symbol = 'BTCUSDT'
-interval = Client.KLINE_INTERVAL_1MINUTE  # Adjust as needed
+interval = Client.KLINE_INTERVAL_1MINUTE
 stoch_period = 14
 k_period = 3
 d_period = 3
 leverage = 10
-oversold_threshold = 20  # Oversold level
-overbought_threshold = 80  # Overbought level
+oversold_threshold = 20
+overbought_threshold = 80
 
 # Calculate Stochastic Oscillator
 def calculate_stoch(high, low, close, stoch_period, k_period, d_period):
@@ -126,17 +126,16 @@ def main():
                     stoch_k.iloc[-1] < oversold_threshold and 
                     engulfing == "bullish"):
                     print("Bullish crossover with bullish engulfing detected - Going LONG")
-                    place_order(symbol, SIDE_BUY, quantity=0.001)  # Adjust quantity
-                
+                    place_order(symbol, SIDE_BUY, quantity=0.001)
                 elif (stoch_k.iloc[-1] < stoch_d.iloc[-1] and 
                       stoch_k.iloc[-2] >= stoch_d.iloc[-2] and 
                       stoch_k.iloc[-1] > overbought_threshold and 
                       engulfing == "bearish"):
                     print("Bearish crossover with bearish engulfing detected - Going SHORT")
-                    place_order(symbol, SIDE_SELL, quantity=0.001)  # Adjust quantity
+                    place_order(symbol, SIDE_SELL, quantity=0.001)  
             
             print("Sleeping for 10 seconds...\n")
-            time.sleep(10)  # Wait for next interval (e.g., 1 minute)
+            time.sleep(10) 
         except Exception as e:
             print(f"Error in main loop: {e}")
             time.sleep(10)

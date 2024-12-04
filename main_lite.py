@@ -68,15 +68,24 @@ def get_usdt_balance():
             return float(asset['balance'])
     return 0.0
 
-# Fetch open position
+def calculate_roi(entry_price, current_price, position_amt, margin_used):
+    if margin_used == 0:
+        return 0.0
+    return ((current_price - entry_price) * position_amt) / margin_used * 100
+
+# Update in the get_position function to calculate ROI and display as percentage
 def get_position(symbol):
     positions = client.futures_position_information()
     for pos in positions:
         if pos['symbol'] == symbol:
             position_amt = float(pos['positionAmt'])
-            unrealized_profit = float(pos['unrealizedProfit']) if 'unrealizedProfit' in pos else 0.0
-            return position_amt, unrealized_profit
-    return 0, 0
+            entry_price = float(pos['entryPrice'])
+            current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
+            margin_used = abs(position_amt) * entry_price  # Adjust based on leverage
+            unrealized_profit = (current_price - entry_price) * position_amt
+            roi = (unrealized_profit / margin_used) * 100  # ROI as a percentage of margin used
+            return position_amt, roi, unrealized_profit
+    return 0, 0, 0
 
 # Adjust quantity to match Binance rules
 def round_quantity(symbol, quantity):
@@ -189,17 +198,19 @@ def close_position_with_log(symbol, side, quantity, reason_to_close):
 
         # Log trade details
         log_trade({
+            "new_USDT_balance": new_usdt_balance,
             "closing_side": side,
             "closing_quantity": quantity,
             "closing_price": limit_price,
             "reason_to_close": reason_to_close,
-            "new_USDT_balance": new_usdt_balance,
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
     except Exception as e:
-        print(f"Error closing position: {e}")                
-# Update the main loop to use the new functions
+        print(f"Error closing position: {e}")
+                
+
+# Main loop displaying ROI as percentage
 def main():
     print(f"Setting leverage for {symbol} to {leverage}")
     try:
@@ -218,26 +229,26 @@ def main():
             print(f"Stochastic K: {stoch_k.iloc[-3:].values}")
             print(f"Stochastic D: {stoch_d.iloc[-3:].values}")
             
-            position, unrealized_profit = get_position(symbol)
-            print(f"Current position: {position}, Unrealized Profit: {unrealized_profit}")
-            
+            position, roi, unrealized_profit = get_position(symbol)
+            print(f"Position: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}")  # Display ROI as %            
             usdt_balance = get_usdt_balance()
             print(f"Available USDT balance: {usdt_balance}")
 
-            # Close Positions
-            if position > 0:  # Long position open
-                if unrealized_profit >= 10:
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 2")
+            # For long position
+            if position > 0:
+                if roi >= 5:  # Check ROI for long position
+                    close_position_with_log(symbol, SIDE_SELL, abs(position), "ROI >= 5%")
                 elif stoch_k.iloc[-1] > OVERBOUGHT:
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic reached overbought threshold")
+                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
 
-            elif position < 0:  # Short position open
-                if unrealized_profit >= 5:
-                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 2")
+            # For short position
+            elif position < 0:
+                if roi >= 5:  # Check ROI for short position
+                    close_position_with_log(symbol, SIDE_BUY, abs(position), "ROI >= 5%")
                 elif stoch_k.iloc[-1] < OVERSOLD:
-                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic reached oversold threshold")
-
-            # Open New Positions
+                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")   
+                    
+                    # Open New Positions
             if position == 0:
                 if (stoch_k.iloc[-1] > stoch_d.iloc[-1] and 
                     stoch_k.iloc[-2] <= stoch_d.iloc[-2] and 

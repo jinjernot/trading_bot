@@ -8,21 +8,14 @@ from binance.enums import *
 
 from config.api import API_KEY, API_SECRET
 from config.paths import LOG_FILE
+from config.stoch import PERIOD,K,D,OVERBOUGHT,OVERSOLD
 
 client = Client(API_KEY, API_SECRET)
 
 # Parameters
 symbol = 'BTCUSDT'
-interval = Client.KLINE_INTERVAL_5MINUTE
-stoch_period = 14
-k_period = 3
-d_period = 3
-leverage = 10
-oversold_threshold = 20
-overbought_threshold = 80
-
-# Path to save the log file
-
+interval = Client.KLINE_INTERVAL_1MINUTE
+leverage = 20
 
 # Function to log trades
 def log_trade(data):
@@ -40,11 +33,11 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
 
 # Calculate Stochastic Oscillator
-def calculate_stoch(high, low, close, stoch_period, k_period, d_period):
-    lowest_low = low.rolling(stoch_period).min()
-    highest_high = high.rolling(stoch_period).max()
+def calculate_stoch(high, low, close, PERIOD, K, D):
+    lowest_low = low.rolling(PERIOD).min()
+    highest_high = high.rolling(PERIOD).max()
     stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-    stoch_d = stoch_k.rolling(d_period).mean()
+    stoch_d = stoch_k.rolling(D).mean()
     return stoch_k, stoch_d
 
 # Fetch historical klines
@@ -83,7 +76,7 @@ def get_position(symbol):
             position_amt = float(pos['positionAmt'])
             unrealized_profit = float(pos['unrealizedProfit']) if 'unrealizedProfit' in pos else 0.0
             return position_amt, unrealized_profit
-    return 0, 0  # No open position
+    return 0, 0
 
 # Adjust quantity to match Binance rules
 def round_quantity(symbol, quantity):
@@ -97,7 +90,7 @@ def round_quantity(symbol, quantity):
             return quantity
     return quantity
 
-# Function to get the current market price of the symbol (BTCUSDT)
+# Function to get the current market price of the symbol
 def get_market_price(symbol):
     try:
         price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
@@ -148,7 +141,7 @@ def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
             type=ORDER_TYPE_LIMIT,
             quantity=quantity,
             price=limit_price,
-            timeInForce=TIME_IN_FORCE_GTC  # Good 'til Canceled
+            timeInForce=TIME_IN_FORCE_GTC
         )
         print(f"Order placed successfully: {order}")
 
@@ -221,7 +214,7 @@ def main():
             print(f"\n--- New Iteration ---")
             df = fetch_klines(symbol, interval)
             
-            stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], stoch_period, k_period, d_period)
+            stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
             print(f"Stochastic K: {stoch_k.iloc[-3:].values}")
             print(f"Stochastic D: {stoch_d.iloc[-3:].values}")
             
@@ -234,25 +227,25 @@ def main():
             # Close Positions
             if position > 0:  # Long position open
                 if unrealized_profit >= 10:
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 5")
-                elif stoch_k.iloc[-1] > overbought_threshold:
+                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Unrealized profit >= 2")
+                elif stoch_k.iloc[-1] > OVERBOUGHT:
                     close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic reached overbought threshold")
 
             elif position < 0:  # Short position open
                 if unrealized_profit >= 5:
-                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 5")
-                elif stoch_k.iloc[-1] < oversold_threshold:
+                    close_position_with_log(symbol, SIDE_BUY, abs(position), "Unrealized profit >= 2")
+                elif stoch_k.iloc[-1] < OVERSOLD:
                     close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic reached oversold threshold")
 
             # Open New Positions
             if position == 0:
                 if (stoch_k.iloc[-1] > stoch_d.iloc[-1] and 
                     stoch_k.iloc[-2] <= stoch_d.iloc[-2] and 
-                    stoch_k.iloc[-1] < oversold_threshold):
+                    stoch_k.iloc[-1] < OVERSOLD):
                     place_order_with_log(symbol, SIDE_BUY, usdt_balance, "Bullish crossover detected")
                 elif (stoch_k.iloc[-1] < stoch_d.iloc[-1] and 
                       stoch_k.iloc[-2] >= stoch_d.iloc[-2] and 
-                      stoch_k.iloc[-1] > overbought_threshold):
+                      stoch_k.iloc[-1] > OVERBOUGHT):
                     place_order_with_log(symbol, SIDE_SELL, usdt_balance, "Bearish crossover detected")  
             
             print("Sleeping for 60 seconds...\n")

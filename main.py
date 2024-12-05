@@ -6,7 +6,7 @@ from src.trade import *
 import asyncio
 
 # Parameters
-symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'POPCATUSDT', 'DOGEUSDT'] 
+symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT'] 
 interval = Client.KLINE_INTERVAL_15MINUTE
 leverage = 10
 

@@ -30,8 +30,8 @@ def get_position(symbol):
             margin_used = abs(position_amt) * entry_price  # Adjust based on leverage
             unrealized_profit = (current_price - entry_price) * position_amt
             roi = (unrealized_profit / margin_used) * 100  # ROI as a percentage of margin used
-            return position_amt, roi, unrealized_profit
-    return 0, 0, 0
+            return position_amt, roi, unrealized_profit, margin_used
+    return 0, 0, 0, 0
 
 # Function to get the current market price of the symbol
 def get_market_price(symbol):
@@ -41,11 +41,6 @@ def get_market_price(symbol):
     except Exception as e:
         print(f"Error getting market price: {e}")
         return None
-    
-def calculate_roi(entry_price, current_price, position_amt, margin_used):
-    if margin_used == 0:
-        return 0.0
-    return ((current_price - entry_price) * position_amt) / margin_used * 100
 
 # Adjust quantity to match Binance rules
 def round_quantity(symbol, quantity):
@@ -69,9 +64,7 @@ def round_price(symbol, price):
             return price
     return price
 
-
-# Fetch historical klines
-def fetch_klines(symbol, interval, lookback='50'):
+def fetch_klines(symbol, interval, lookback='200'):
     print(f"Fetching klines for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
@@ -79,5 +72,40 @@ def fetch_klines(symbol, interval, lookback='50'):
                                        'trades', 'taker_base', 'taker_quote', 'ignore'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+    
+    # Calculate support and resistance levels
+    support = df['low'].min()  # Lowest price in the 'low' column
+    resistance = df['high'].max()  # Highest price in the 'high' column
+    
     print(f"Fetched {len(df)} rows of data.")
-    return df
+    print(f"Support: {support}, Resistance: {resistance}")
+    
+    # Return the DataFrame along with support and resistance levels
+    return df, support, resistance
+
+# Function to calculate support and resistance levels
+def calculate_support_resistance(df):
+    support = df['low'].min()  # Lowest price in the 'low' column
+    resistance = df['high'].max()  # Highest price in the 'high' column
+    return support, resistance
+
+
+def detect_trend(df, short_window=50, long_window=200):
+    """
+    Detects the trend of the market using moving averages.
+    
+    :param df: DataFrame containing historical candlestick data.
+    :param short_window: Short-term window for moving average (default 50).
+    :param long_window: Long-term window for moving average (default 200).
+    :return: 'uptrend', 'downtrend', or 'sideways' based on the moving average crossover.
+    """
+    short_ma = df['close'].rolling(window=short_window).mean()
+    long_ma = df['close'].rolling(window=long_window).mean()
+    
+    # Check if short MA is above long MA (uptrend) or below (downtrend)
+    if short_ma.iloc[-1] > long_ma.iloc[-1]:
+        return 'uptrend'
+    elif short_ma.iloc[-1] < long_ma.iloc[-1]:
+        return 'downtrend'
+    else:
+        return 'sideways'

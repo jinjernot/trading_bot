@@ -6,7 +6,7 @@ from src.trade import *
 import asyncio
 
 # Parameters
-symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']  # Add your symbols here
+symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']  # Add your symbols here
 interval = Client.KLINE_INTERVAL_1MINUTE
 leverage = 10
 
@@ -29,11 +29,7 @@ async def process_symbol(symbol):
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
         print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
         print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
-        
-        # Display Support and Resistance levels
-        print(f"Support Level for {symbol}: {support}")
-        print(f"Resistance Level for {symbol}: {resistance}")
-        
+                
         # Get current position and ROI
         position, roi, unrealized_profit, margin_used = get_position(symbol)
         print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}") 
@@ -98,7 +94,7 @@ async def process_symbol(symbol):
                 await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
-        await asyncio.sleep(60)
+        await asyncio.sleep(10)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
@@ -109,8 +105,8 @@ async def main():
         for symbol in symbols:
             await process_symbol(symbol)
         # Sleep between iterations if necessary
-        print("Sleeping for 60 seconds before scanning the next symbol...")
-        await asyncio.sleep(60)
+        print("Sleeping for 10 seconds before scanning the next symbol...")
+        await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(main())

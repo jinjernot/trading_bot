@@ -5,9 +5,9 @@ import pandas as pd
 from binance.enums import *
 
 from config.paths import LOG_FILE
-from config.api import API_KEY, API_SECRET
+from config.secrets import API_KEY, API_SECRET
 
-from src.data.get_data import *
+from data.get_data import *
 
 from binance.client import Client
 

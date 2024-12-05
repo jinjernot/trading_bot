@@ -2,12 +2,11 @@
 from binance.client import Client
 from binance.enums import *
 
-from config.api import API_KEY, API_SECRET, TELEGRAM_TOKEN, CHAT_ID
-from config.stoch import PERIOD,K,D,OVERBOUGHT,OVERSOLD
+from config.secrets import API_KEY, API_SECRET, TELEGRAM_TOKEN, CHAT_ID
 
-from src.data.stochastic import *
-from src.data.get_data import *
-from src.core.trade import *
+from data.stochastic import *
+from data.get_data import *
+from src.trade import *
 
 import asyncio
 

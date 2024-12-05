@@ -1,5 +1,5 @@
-from config.api import API_KEY, API_SECRET
-
+from config.secrets import API_KEY, API_SECRET
+import pandas as pd
 from binance.client import Client
 
 client = Client(API_KEY, API_SECRET)
@@ -68,3 +68,16 @@ def round_price(symbol, price):
             price = round(price - (price % tick_size), 8)  # Align price with tick size
             return price
     return price
+
+
+# Fetch historical klines
+def fetch_klines(symbol, interval, lookback='50'):
+    print(f"Fetching klines for {symbol} with interval {interval} and lookback {lookback}")
+    klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
+    df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
+                                       'volume', 'close_time', 'quote_volume', 
+                                       'trades', 'taker_base', 'taker_quote', 'ignore'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+    print(f"Fetched {len(df)} rows of data.")
+    return df

@@ -1,3 +1,5 @@
 .venv
 config
 trade_logs.json
+old
+__pycache__

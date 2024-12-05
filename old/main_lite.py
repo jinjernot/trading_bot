@@ -22,7 +22,7 @@ import asyncio
 # Parameters
 symbol = 'BTCUSDT'
 interval = Client.KLINE_INTERVAL_1MINUTE
-leverage = 5
+leverage = 10
 bot = Bot(token=TELEGRAM_TOKEN)
 
 # Function to send a Telegram message
@@ -146,7 +146,7 @@ def round_price(symbol, price):
             return price
     return price
 
-def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
+def place_order(symbol, side, usdt_balance, reason_to_open):
     trade_amount = usdt_balance * 0.32  # 30% of available USDT balance
     print(f"30% of available USDT balance for trade: {trade_amount}")
 
@@ -195,7 +195,7 @@ def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
     except Exception as e:
         print(f"Error placing order: {e}")
 
-def close_position_with_log(symbol, side, quantity, reason_to_close):
+def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
         price = get_market_price(symbol)
@@ -238,7 +238,7 @@ def close_position_with_log(symbol, side, quantity, reason_to_close):
         print(f"Error closing position: {e}")
                 
 
-# Main loop displaying ROI as percentage
+
 # Main loop displaying ROI as percentage
 async def main():
     print(f"Setting leverage for {symbol} to {leverage}")
@@ -266,19 +266,19 @@ async def main():
             # For long position
             if position > 0:
                 if roi >= 1:  # Check ROI for long position
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "ROI >= 1%")
+                    close_position(symbol, SIDE_SELL, abs(position), "ROI >= 1%")
                     await send_telegram_message(f"Long position closed: ROI >= 1%")
                 elif stoch_k.iloc[-1] > OVERBOUGHT:
-                    close_position_with_log(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
+                    close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
                     await send_telegram_message(f"Long position closed: Stochastic overbought")
 
             # For short position
             #elif position < 0:
             #    if roi >= 2:  # Check ROI for short position
-            #        close_position_with_log(symbol, SIDE_BUY, abs(position), "ROI >= 5%")
+            #        close_position(symbol, SIDE_BUY, abs(position), "ROI >= 5%")
             #        await send_telegram_message(f"Short position closed: ROI >= 5%")
             #    elif stoch_k.iloc[-1] < OVERSOLD:
-            #        close_position_with_log(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
+            #        close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
             #        await send_telegram_message(f"Short position closed: Stochastic oversold")
                     
             # Open New Positions
@@ -286,12 +286,12 @@ async def main():
                 if (stoch_k.iloc[-1] > stoch_d.iloc[-1] and 
                     stoch_k.iloc[-2] <= stoch_d.iloc[-2] and 
                     stoch_k.iloc[-1] < OVERSOLD):
-                    place_order_with_log(symbol, SIDE_BUY, usdt_balance, "Bullish crossover detected")
+                    place_order(symbol, SIDE_BUY, usdt_balance, "Bullish crossover detected")
                     await send_telegram_message(f"New Buy order placed: Bullish crossover detected")
             #    elif (stoch_k.iloc[-1] < stoch_d.iloc[-1] and 
             #          stoch_k.iloc[-2] >= stoch_d.iloc[-2] and 
             #          stoch_k.iloc[-1] > OVERBOUGHT):
-            #        place_order_with_log(symbol, SIDE_SELL, usdt_balance, "Bearish crossover detected")
+            #        place_order(symbol, SIDE_SELL, usdt_balance, "Bearish crossover detected")
             #        await send_telegram_message(f"New Sell order placed: Bearish crossover detected")
 
             print("Sleeping for 60 seconds...\n")

@@ -7,7 +7,7 @@ from binance.enums import *
 from config.paths import LOG_FILE
 from config.api import API_KEY, API_SECRET
 
-from get_data import *
+from src.data.get_data import *
 
 from binance.client import Client
 
@@ -31,7 +31,7 @@ def log_trade(data):
         
         
         
-def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
+def place_order(symbol, side, usdt_balance, reason_to_open):
     trade_amount = usdt_balance * 0.32  # 30% of available USDT balance
     print(f"30% of available USDT balance for trade: {trade_amount}")
 
@@ -80,7 +80,7 @@ def place_order_with_log(symbol, side, usdt_balance, reason_to_open):
     except Exception as e:
         print(f"Error placing order: {e}")
 
-def close_position_with_log(symbol, side, quantity, reason_to_close):
+def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
         price = get_market_price(symbol)

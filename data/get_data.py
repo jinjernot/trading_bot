@@ -21,18 +21,34 @@ def get_usdt_balance():
 
 # Update in the get_position function to calculate ROI and display as percentage
 def get_position(symbol):
-    positions = client.futures_position_information()
-    for pos in positions:
-        if pos['symbol'] == symbol:
-            position_amt = float(pos['positionAmt'])
-            entry_price = float(pos['entryPrice'])
-            current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
-            margin_used = abs(position_amt) * entry_price  # Adjust based on leverage
-            unrealized_profit = (current_price - entry_price) * position_amt
-            roi = (unrealized_profit / margin_used) * 100  # ROI as a percentage of margin used
-            return position_amt, roi, unrealized_profit, margin_used
-    return 0, 0, 0, 0
-
+    try:
+        positions = client.futures_position_information()
+        for pos in positions:
+            if pos['symbol'] == symbol:
+                position_amt = float(pos['positionAmt'])
+                entry_price = float(pos['entryPrice'])
+                current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
+                
+                # Calculate the order size (Position Size in USD)
+                order_size = abs(position_amt) * entry_price
+                
+                # Assuming leverage is 10x (you can replace this with actual leverage if needed)
+                leverage = 10  # Replace with actual leverage if necessary
+                
+                # Calculate margin used based on leverage
+                margin_used = order_size / leverage  # Correct margin calculation
+                
+                # Calculate unrealized profit
+                unrealized_profit = (current_price - entry_price) * position_amt
+                
+                # Calculate ROI
+                roi = (unrealized_profit / margin_used) * 100  # ROI as a percentage of margin used
+                
+                return position_amt, roi, unrealized_profit, margin_used
+        return 0, 0, 0, 0
+    except Exception as e:
+        print(f"Error getting position for {symbol}: {e}")
+        return 0, 0, 0, 0
 # Function to get the current market price of the symbol
 def get_market_price(symbol):
     try:

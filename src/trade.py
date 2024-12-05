@@ -30,7 +30,6 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
         
-        
 def place_order(symbol, side, usdt_balance, reason_to_open):
     trade_amount = usdt_balance * 0.32  # 30% of available USDT balance
     print(f"30% of available USDT balance for trade: {trade_amount}")
@@ -43,17 +42,18 @@ def place_order(symbol, side, usdt_balance, reason_to_open):
         if price is None:
             return
 
-        # Adjust the price for limit order
+        # Adjust the price for limit order based on symbol precision
         limit_price = round_price(symbol, price)
-        
+
+        # Calculate the quantity to trade based on available balance
         quantity = trade_amount / limit_price
-        quantity = round(quantity, 3)  # Adjust to Binance's minimum step size
+        quantity = round_quantity(symbol, quantity)  # Use round_quantity to adjust to symbol's step size
 
         notional = limit_price * quantity
         if notional < 100:
             print(f"Notional value {notional} is too small, adjusting quantity to meet minimum notional.")
             quantity = 100 / limit_price
-            quantity = round(quantity, 3)
+            quantity = round_quantity(symbol, quantity)  # Ensure the adjusted quantity meets step size
 
         if quantity <= 0:
             print("Calculated quantity is too small to trade.")

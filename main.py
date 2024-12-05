@@ -5,10 +5,7 @@ from data.get_data import *
 from src.trade import *
 import asyncio
 
-# Parameters
-symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT','DOGEUSDT','POPCATUSDT'] 
-interval = Client.KLINE_INTERVAL_15MINUTE
-leverage = 10
+from config.settings import *
 
 
 async def process_symbol(symbol):
@@ -19,80 +16,80 @@ async def process_symbol(symbol):
     except Exception as e:
         print(f"Error setting leverage for {symbol}: {e}")
         return
-    
+
     try:
-        print(f"\n--- New Iteration for {symbol} ---")
+        print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
         # Fetch klines and calculate support and resistance
         df, support, resistance = fetch_klines(symbol, interval)
-        
+
         # Calculate Stochastic indicators
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
         print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
         print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
-                
+
         # Get current position and ROI
         position, roi, unrealized_profit, margin_used = get_position(symbol)
-        print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}") 
+        print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}")
         print(f"Margin Used for {symbol}: {margin_used}")
-        
+
         # Fetch available USDT balance
         usdt_balance = get_usdt_balance()
         print(f"Available USDT balance for {symbol}: {usdt_balance}")
-        
+
         # Detect market trend using your custom function
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
-        
+
         # Closing logic with the new ROI exit condition for negative ROI
         if position > 0:
-            if roi >= 1:
+            if roi >= 10:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 10%")
-                message = f"🔺 Long position closed for {symbol}: ROI >= 10% (Current ROI: {roi:.2f}%)"
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif roi <= -2:  # New condition for negative ROI of -2%
                 close_position(symbol, SIDE_SELL, abs(position), "ROI <= -2%")
-                message = f"🔺 Long position closed for {symbol}: ROI <= -2% (Current ROI: {roi:.2f}%)"
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -2% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] > OVERBOUGHT:
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
-                message = f"🔺 Long position closed for {symbol}: Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f})"
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f})"
                 await send_telegram_message(message)
-        
+
         elif position < 0:
-            if roi >= 2:  
+            if roi >= 10:
                 close_position(symbol, SIDE_BUY, abs(position), "ROI >= 10%")
-                message = f"🔻 Short position closed for {symbol}: ROI >= 10% (Current ROI: {roi:.2f}%)"
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif roi <= -2:  # New condition for negative ROI of -2%
                 close_position(symbol, SIDE_BUY, abs(position), "ROI <= -2%")
-                message = f"🔻 Short position closed for {symbol}: ROI <= -2% (Current ROI: {roi:.2f}%)"
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -2% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] < OVERSOLD:
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
-                message = f"🔻 Short position closed for {symbol}: Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f})"
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f})"
                 await send_telegram_message(message)
 
         # Open New Positions
         if position == 0:
             # Long logic (only in uptrend)
-            if trend == 'uptrend' and (stoch_k.iloc[-1] > stoch_d.iloc[-1] and 
-                stoch_k.iloc[-2] <= stoch_d.iloc[-2] and 
-                stoch_k.iloc[-1] < OVERSOLD and 
-                df['close'].iloc[-1] > support):
+            if trend == 'uptrend' and (stoch_k.iloc[-1] > stoch_d.iloc[-1] and
+                                       stoch_k.iloc[-2] <= stoch_d.iloc[-2] and
+                                       stoch_k.iloc[-1] < OVERSOLD and
+                                       df['close'].iloc[-1] > support):
                 place_order(symbol, SIDE_BUY, usdt_balance, "Bullish crossover with support confirmation")
-                message = (f"🔺 New Buy order placed for {symbol}: Bullish crossover with support confirmation\n"
+                message = (f"🔺 New Buy order placed for {symbol} ({nice_interval}): Bullish crossover with support confirmation\n"
                            f"Support: {support}, Resistance: {resistance}\n"
                            f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                            f"Price: {df['close'].iloc[-1]:.2f}")
                 await send_telegram_message(message)
-                
+
             # Short logic (only in downtrend)
-            if trend == 'downtrend' and (stoch_k.iloc[-1] < stoch_d.iloc[-1] and 
-                stoch_k.iloc[-2] >= stoch_d.iloc[-2] and 
-                stoch_k.iloc[-1] > OVERBOUGHT and 
-                df['close'].iloc[-1] < resistance):
+            if trend == 'downtrend' and (stoch_k.iloc[-1] < stoch_d.iloc[-1] and
+                                         stoch_k.iloc[-2] >= stoch_d.iloc[-2] and
+                                         stoch_k.iloc[-1] > OVERBOUGHT and
+                                         df['close'].iloc[-1] < resistance):
                 place_order(symbol, SIDE_SELL, usdt_balance, "Bearish crossover with resistance confirmation")
-                message = (f"🔻 New Sell order placed for {symbol}: Bearish crossover with resistance confirmation\n"
+                message = (f"🔻 New Sell order placed for {symbol} ({nice_interval}): Bearish crossover with resistance confirmation\n"
                            f"Support: {support}, Resistance: {resistance}\n"
                            f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                            f"Price: {df['close'].iloc[-1]:.2f}")

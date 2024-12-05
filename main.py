@@ -6,8 +6,8 @@ from src.trade import *
 import asyncio
 
 # Parameters
-symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']  # Add your symbols here
-interval = Client.KLINE_INTERVAL_1MINUTE
+symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'POPCATUSDT', 'DOGEUSDT'] 
+interval = Client.KLINE_INTERVAL_15MINUTE
 leverage = 10
 
 
@@ -47,24 +47,22 @@ async def process_symbol(symbol):
         if position > 0:
             if roi >= 1:  # Check ROI for long position
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 1%")
-                message = f"Long position closed for {symbol}: ROI >= 1% (Current ROI: {roi:.2f}%)"
+                message = f"🔺 Long position closed for {symbol}: ROI >= 1% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] > OVERBOUGHT:
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
-                message = f"Long position closed for {symbol}: Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f})"
+                message = f"🔺 Long position closed for {symbol}: Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f})"
                 await send_telegram_message(message)
         
         # Short position logic (only in downtrend)
         elif position < 0:
-            # Close short position if ROI is greater than 2%
             if roi >= 2:  
                 close_position(symbol, SIDE_BUY, abs(position), "ROI >= 2%")
-                message = f"Short position closed for {symbol}: ROI >= 2% (Current ROI: {roi:.2f}%)"
+                message = f"🔻 Short position closed for {symbol}: ROI >= 2% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
-            # Close short position if Stochastic is oversold
             elif stoch_k.iloc[-1] < OVERSOLD:
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
-                message = f"Short position closed for {symbol}: Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f})"
+                message = f"🔻 Short position closed for {symbol}: Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f})"
                 await send_telegram_message(message)
 
         # Open New Positions
@@ -75,7 +73,7 @@ async def process_symbol(symbol):
                 stoch_k.iloc[-1] < OVERSOLD and 
                 df['close'].iloc[-1] > support):
                 place_order(symbol, SIDE_BUY, usdt_balance, "Bullish crossover with support confirmation")
-                message = (f"New Buy order placed for {symbol}: Bullish crossover with support confirmation\n"
+                message = (f"🔺 New Buy order placed for {symbol}: Bullish crossover with support confirmation\n"
                            f"Support: {support}, Resistance: {resistance}\n"
                            f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                            f"Price: {df['close'].iloc[-1]:.2f}")
@@ -85,9 +83,9 @@ async def process_symbol(symbol):
             if trend == 'downtrend' and (stoch_k.iloc[-1] < stoch_d.iloc[-1] and 
                 stoch_k.iloc[-2] >= stoch_d.iloc[-2] and 
                 stoch_k.iloc[-1] > OVERBOUGHT and 
-                df['close'].iloc[-1] < resistance):  # Check if price is below resistance
+                df['close'].iloc[-1] < resistance):
                 place_order(symbol, SIDE_SELL, usdt_balance, "Bearish crossover with resistance confirmation")
-                message = (f"New Sell order placed for {symbol}: Bearish crossover with resistance confirmation\n"
+                message = (f"🔻 New Sell order placed for {symbol}: Bearish crossover with resistance confirmation\n"
                            f"Support: {support}, Resistance: {resistance}\n"
                            f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                            f"Price: {df['close'].iloc[-1]:.2f}")
@@ -99,6 +97,7 @@ async def process_symbol(symbol):
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(10)
+
 
 async def main():
     while True:

@@ -36,6 +36,9 @@ def place_order(symbol, side, usdt_balance, reason_to_open):
     print(f"30% of available USDT balance for trade: {trade_amount}")
 
     try:
+        # Ensure margin type is isolated
+        set_margin_type(symbol, margin_type='ISOLATED')
+
         price = get_market_price(symbol)
         if price is None:
             return
@@ -79,10 +82,14 @@ def place_order(symbol, side, usdt_balance, reason_to_open):
 
     except Exception as e:
         print(f"Error placing order: {e}")
-
+        
+        
 def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
+        # Ensure margin type is isolated
+        set_margin_type(symbol, margin_type='ISOLATED')
+
         price = get_market_price(symbol)
         if price is None:
             return
@@ -121,3 +128,13 @@ def close_position(symbol, side, quantity, reason_to_close):
 
     except Exception as e:
         print(f"Error closing position: {e}")
+        
+def set_margin_type(symbol, margin_type='ISOLATED'):
+    try:
+        response = client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
+        print(f"Margin type for {symbol} set to {margin_type}: {response}")
+    except Exception as e:
+        if "No need to change margin type" in str(e):
+            print(f"Margin type for {symbol} is already {margin_type}.")
+        else:
+            print(f"Error setting margin type for {symbol}: {e}")

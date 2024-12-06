@@ -20,7 +20,7 @@ async def process_symbol(symbol):
 
     try:
         print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
-        # Fetch klines and calculate support and resistance
+        # Get Candles
         df, support, resistance, atr  = fetch_klines(symbol, interval)
 
         # Calculate Stochastic indicators
@@ -33,15 +33,15 @@ async def process_symbol(symbol):
         print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}")
         print(f"Margin Used for {symbol}: {margin_used}")
 
-        # Fetch available USDT balance
+        # Get USDT balance
         usdt_balance = get_usdt_balance()
         print(f"Available USDT balance for {symbol}: {usdt_balance}")
 
-        # Detect market trend using your custom function
+        # Get trend
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
 
-        # Closing logic with the new ROI exit condition for negative ROI
+        # Close the trade
         if position > 0:
             if roi >= 50:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
@@ -75,19 +75,19 @@ async def process_symbol(symbol):
             # Calculate ATR (Average True Range)
             atr = df['high'].rolling(window=14).max() - df['low'].rolling(window=14).min()
 
-            # Calculate RSI using your custom function
+            # Calculate RSI 
             df = calculate_rsi(df, period=14)  # Adding RSI column to df
 
-            # Long logic (only in uptrend)
+            # Long
             if trend == 'uptrend' and (
                 (
-                    stoch_k.iloc[-1] > stoch_d.iloc[-1] and  # Bullish crossover
+                    stoch_k.iloc[-1] > stoch_d.iloc[-1] and
                     stoch_k.iloc[-2] <= stoch_d.iloc[-2] and
-                    stoch_k.iloc[-1] > OVERSOLD and          # Moved out of oversold
-                    stoch_k.iloc[-2] <= OVERSOLD             # Previously in oversold
+                    stoch_k.iloc[-1] > OVERSOLD and
+                    stoch_k.iloc[-2] <= OVERSOLD
                 ) or (
-                    df['rsi'].iloc[-1] < 30  # RSI below 30 (oversold condition)
-                ) and abs(df['close'].iloc[-1] - support) <= atr.iloc[-1]  # Price close to support
+                    df['rsi'].iloc[-1] < 30 
+                ) and abs(df['close'].iloc[-1] - support) <= atr.iloc[-1]
             ):
                 place_order(symbol, SIDE_BUY, usdt_balance, "Bullish entry with stochastic or RSI oversold", stop_loss_percentage=2)
                 message = (
@@ -98,16 +98,16 @@ async def process_symbol(symbol):
                 )
                 await send_telegram_message(message)
 
-            # Short logic (only in downtrend)
+            # Short
             if trend == 'downtrend' and (
                 (
-                    stoch_k.iloc[-1] < stoch_d.iloc[-1] and  # Bearish crossover
+                    stoch_k.iloc[-1] < stoch_d.iloc[-1] and
                     stoch_k.iloc[-2] >= stoch_d.iloc[-2] and
-                    stoch_k.iloc[-1] < OVERBOUGHT and        # Moved out of overbought
-                    stoch_k.iloc[-2] >= OVERBOUGHT           # Previously in overbought
+                    stoch_k.iloc[-1] < OVERBOUGHT and
+                    stoch_k.iloc[-2] >= OVERBOUGHT
                 ) or (
-                    df['rsi'].iloc[-1] > 70  # RSI above 70 (overbought condition)
-                ) and abs(df['close'].iloc[-1] - resistance) <= atr.iloc[-1]  # Price close to resistance
+                    df['rsi'].iloc[-1] > 70  # RSI above 70
+                ) and abs(df['close'].iloc[-1] - resistance) <= atr.iloc[-1]
             ):
                 place_order(symbol, SIDE_SELL, usdt_balance, "Bearish entry with stochastic or RSI overbought", stop_loss_percentage=2)
                 message = (
@@ -129,7 +129,6 @@ async def main():
     while True:
         for symbol in symbols:
             await process_symbol(symbol)
-        # Sleep between iterations if necessary
         print("Sleeping for 60 seconds before scanning the next symbol...")
         await asyncio.sleep(20)
 

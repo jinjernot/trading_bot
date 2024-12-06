@@ -7,7 +7,6 @@ import asyncio
 
 from config.settings import *
 
-
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
     try:
@@ -46,9 +45,9 @@ async def process_symbol(symbol):
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 10%")
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
-            elif roi <= -2:  # New condition for negative ROI of -2%
-                close_position(symbol, SIDE_SELL, abs(position), "ROI <= -2%")
-                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -2% (Current ROI: {roi:.2f}%)"
+            elif roi <= -5:  # New condition for negative ROI of -5%
+                close_position(symbol, SIDE_SELL, abs(position), "ROI <= -5%")
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -5% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] > OVERBOUGHT:
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
@@ -60,9 +59,9 @@ async def process_symbol(symbol):
                 close_position(symbol, SIDE_BUY, abs(position), "ROI >= 10%")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
-            elif roi <= -2:  # New condition for negative ROI of -2%
-                close_position(symbol, SIDE_BUY, abs(position), "ROI <= -2%")
-                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -2% (Current ROI: {roi:.2f}%)"
+            elif roi <= -5:  # New condition for negative ROI of -5%
+                close_position(symbol, SIDE_BUY, abs(position), "ROI <= -5%")
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -5% (Current ROI: {roi:.2f}%)"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] < OVERSOLD:
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
@@ -96,19 +95,19 @@ async def process_symbol(symbol):
                 await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
 async def main():
     while True:
         for symbol in symbols:
             await process_symbol(symbol)
         # Sleep between iterations if necessary
-        print("Sleeping for 10 seconds before scanning the next symbol...")
-        await asyncio.sleep(10)
+        print("Sleeping for 60 seconds before scanning the next symbol...")
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(main())

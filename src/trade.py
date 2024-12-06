@@ -30,8 +30,8 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
         
-def place_order(symbol, side, usdt_balance, reason_to_open):
-    trade_amount = usdt_balance * 0.32  # 30% of available USDT balance
+def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False):
+    trade_amount = usdt_balance * 0.34  # 30% of available USDT balance
     print(f"30% of available USDT balance for trade: {trade_amount}")
 
     try:
@@ -66,7 +66,8 @@ def place_order(symbol, side, usdt_balance, reason_to_open):
             type=ORDER_TYPE_LIMIT,
             quantity=quantity,
             price=limit_price,
-            timeInForce=TIME_IN_FORCE_GTC
+            timeInForce=TIME_IN_FORCE_GTC,
+            reduceOnly=reduce_only  # Set reduceOnly parameter
         )
         print(f"Order placed successfully: {order}")
 
@@ -77,12 +78,13 @@ def place_order(symbol, side, usdt_balance, reason_to_open):
             "trade_quantity": quantity,
             "trade_price": limit_price,
             "reason_to_open": reason_to_open,
+            "reduce_only": reduce_only,
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
     except Exception as e:
         print(f"Error placing order: {e}")
-        
+                
         
 def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
@@ -109,7 +111,8 @@ def close_position(symbol, side, quantity, reason_to_close):
             type=ORDER_TYPE_LIMIT,
             quantity=quantity,
             price=limit_price,  # Use the aligned price
-            timeInForce=TIME_IN_FORCE_GTC  # Good Till Canceled
+            timeInForce=TIME_IN_FORCE_GTC,  # Good Till Canceled
+            reduceOnly=True  # Explicitly set reduceOnly to True
         )
         print(f"Position closed successfully: {order}")
 
@@ -127,8 +130,9 @@ def close_position(symbol, side, quantity, reason_to_close):
         })
 
     except Exception as e:
-        print(f"Error closing position: {e}")
+        print(f"Error closing position: {e}")      
         
+          
 def set_margin_type(symbol, margin_type='ISOLATED'):
     try:
         response = client.futures_change_margin_type(symbol=symbol, marginType=margin_type)

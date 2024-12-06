@@ -80,7 +80,8 @@ def round_price(symbol, price):
             return price
     return price
 
-def fetch_klines(symbol, interval, lookback='200'):
+# Updated fetch_klines function
+def fetch_klines(symbol, interval, lookback='100'):
     print(f"Fetching klines for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
@@ -93,11 +94,18 @@ def fetch_klines(symbol, interval, lookback='200'):
     support = df['low'].min()  # Lowest price in the 'low' column
     resistance = df['high'].max()  # Highest price in the 'high' column
     
+    # Calculate ATR
+    df['high_low'] = df['high'] - df['low']
+    df['high_close'] = abs(df['high'] - df['close'].shift())
+    df['low_close'] = abs(df['low'] - df['close'].shift())
+    df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
+    df['atr'] = df['true_range'].rolling(window=14).mean()  # 14-period ATR
+    
     print(f"Fetched {len(df)} rows of data.")
     print(f"Support: {support}, Resistance: {resistance}")
     
-    # Return the DataFrame along with support and resistance levels
-    return df, support, resistance
+    # Return the DataFrame along with support and resistance levels, and ATR
+    return df, support, resistance, df['atr'].iloc[-1] 
 
 # Function to calculate support and resistance levels
 def calculate_support_resistance(df):
@@ -106,22 +114,46 @@ def calculate_support_resistance(df):
     return support, resistance
 
 
-def detect_trend(df, short_window=20, long_window=50):
+def detect_trend(df):
     """
-    Detects the trend of the market using moving averages.
+    Detects the market trend using higher highs and lower lows.
     
     :param df: DataFrame containing historical candlestick data.
-    :param short_window: Short-term window for moving average (default 50).
-    :param long_window: Long-term window for moving average (default 200).
-    :return: 'uptrend', 'downtrend', or 'sideways' based on the moving average crossover.
+    :return: 'uptrend', 'downtrend', or 'sideways' based on higher highs and lower lows.
     """
-    short_ma = df['close'].rolling(window=short_window).mean()
-    long_ma = df['close'].rolling(window=long_window).mean()
+    # Initialize trend as 'sideways' (neutral)
+    trend = 'sideways'
     
-    # Check if short MA is above long MA (uptrend) or below (downtrend)
-    if short_ma.iloc[-1] > long_ma.iloc[-1]:
-        return 'uptrend'
-    elif short_ma.iloc[-1] < long_ma.iloc[-1]:
-        return 'downtrend'
-    else:
-        return 'sideways'
+    # Loop through the DataFrame starting from the second index
+    for i in range(2, len(df)):
+        current_high = df['high'].iloc[i]
+        previous_high = df['high'].iloc[i-1]
+        current_low = df['low'].iloc[i]
+        previous_low = df['low'].iloc[i-1]
+        
+        # Check if we have a higher high and higher low (uptrend)
+        if current_high > previous_high and current_low > previous_low:
+            trend = 'uptrend'
+        
+        # Check if we have a lower high and lower low (downtrend)
+        elif current_high < previous_high and current_low < previous_low:
+            trend = 'downtrend'
+        
+        # If neither higher highs and higher lows nor lower highs and lower lows are found
+        elif trend == 'sideways':  # Maintain sideways if no clear trend is identified
+            trend = 'sideways'
+
+    return trend
+
+# Function to check proximity to support/resistance using ATR
+def is_close_to_level(price, level, atr, multiplier=1.0):
+    """
+    Determines if the price is close to a given level within an ATR-based proximity range.
+    :param price: Current market price.
+    :param level: Support or resistance level.
+    :param atr: Average True Range value.
+    :param multiplier: Multiplier to adjust the proximity range (default 1.0).
+    :return: True if price is within the range, False otherwise.
+    """
+    proximity_range = atr * multiplier
+    return abs(price - level) <= proximity_range

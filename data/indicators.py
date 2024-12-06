@@ -1,4 +1,3 @@
-import pandas as pd
 from binance.client import Client
 from config.secrets import API_KEY, API_SECRET
 
@@ -18,3 +17,13 @@ def calculate_stoch(high, low, close, PERIOD, K, D):
     stoch_d = stoch_k.rolling(D).mean()
     return stoch_k, stoch_d
 
+
+def calculate_rsi(df, period=14):
+    """Calculate RSI using closing prices."""
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    df['rsi'] = rsi
+    return df

@@ -30,9 +30,19 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
         
-def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False):
-    trade_amount = usdt_balance * 0.34  # 30% of available USDT balance
-    print(f"30% of available USDT balance for trade: {trade_amount}")
+def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
+    """
+    Calculate the stop-loss price based on the entry price and position side.
+    """
+    if position_side == SIDE_BUY:  # Long position
+        return entry_price * (1 - stop_loss_percentage / 100)
+    elif position_side == SIDE_SELL:  # Short position
+        return entry_price * (1 + stop_loss_percentage / 100)
+
+
+def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
+    trade_amount = usdt_balance * 0.4  # 34% of available USDT balance
+    print(f"34% of available USDT balance for trade: {trade_amount}")
 
     try:
         # Ensure margin type is isolated
@@ -82,8 +92,45 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False):
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
+        # Place stop-loss order if stop_loss_percentage is provided
+        if stop_loss_percentage is not None:
+            # Calculate stop-loss price
+            stop_loss_price = calculate_stop_loss(limit_price, side, stop_loss_percentage)
+            stop_loss_price = round_price(symbol, stop_loss_price)  # Ensure the price meets tick size
+
+            # Ensure stop_loss_side is correctly set
+            stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+
+            # Log calculated stop-loss price
+            print(f"Calculated stop-loss price: {stop_loss_price} (Stop Price: {stop_loss_price})")
+
+            # Check if stop loss price is within a valid range
+            if stop_loss_price <= 0:
+                print(f"Invalid stop-loss price: {stop_loss_price}")
+                return  # Exit if the price is invalid
+
+            # Ensure quantity is greater than zero
+            if quantity <= 0:
+                print("Invalid quantity for stop-loss order.")
+                return  # Exit if quantity is not valid
+
+            try:
+                # Place stop-loss limit order
+                stop_loss_order = client.futures_create_order(
+                    symbol=symbol,
+                    side=stop_loss_side,
+                    type=FUTURE_ORDER_TYPE_STOP,
+                    stopPrice=stop_loss_price,  # Price at which stop is triggered
+                    price=stop_loss_price,      # Limit price for execution
+                    quantity=quantity,
+                    timeInForce=TIME_IN_FORCE_GTC  # Good Till Canceled
+                )
+                print(f"Stop-loss order placed successfully: {stop_loss_order}")
+            except Exception as e:
+                print(f"Error placing stop-loss order: {e}")
     except Exception as e:
         print(f"Error placing order: {e}")
+
                 
         
 def close_position(symbol, side, quantity, reason_to_close):

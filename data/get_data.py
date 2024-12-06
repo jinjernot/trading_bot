@@ -106,7 +106,7 @@ def calculate_support_resistance(df):
     return support, resistance
 
 
-def detect_trend(df, short_window=50, long_window=200):
+def detect_trend(df, short_window=20, long_window=50):
     """
     Detects the trend of the market using moving averages.
     

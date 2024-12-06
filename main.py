@@ -41,9 +41,9 @@ async def process_symbol(symbol):
 
         # Closing logic with the new ROI exit condition for negative ROI
         if position > 0:
-            if roi >= 50:
-                close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
-                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%) ⭕"
+            if roi >= 40:
+                close_position(symbol, SIDE_SELL, abs(position), "ROI >= 40%")
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
                 await send_telegram_message(message)
             elif roi <= -5:  # New condition for negative ROI of -5%
                 close_position(symbol, SIDE_SELL, abs(position), "ROI <= -5%")
@@ -55,9 +55,9 @@ async def process_symbol(symbol):
                 await send_telegram_message(message)
 
         elif position < 0:
-            if roi >= 50:
-                close_position(symbol, SIDE_BUY, abs(position), "ROI >= 50%")
-                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 10% (Current ROI: {roi:.2f}%) ⭕"
+            if roi >= 40:
+                close_position(symbol, SIDE_BUY, abs(position), "ROI >= 40%")
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
                 await send_telegram_message(message)
             elif roi <= -5:  # New condition for negative ROI of -5%
                 close_position(symbol, SIDE_BUY, abs(position), "ROI <= -5%")
@@ -76,7 +76,7 @@ async def process_symbol(symbol):
                                     stoch_k.iloc[-1] > OVERSOLD and          # Moved out of oversold
                                     stoch_k.iloc[-2] <= OVERSOLD and         # Previously in oversold
                                     df['close'].iloc[-1] > support):         # Price above support
-                place_order(symbol, SIDE_BUY, usdt_balance, "Bullish crossover with support confirmation")
+                place_order(symbol, SIDE_BUY, usdt_balance, "Bullish crossover with support confirmation",  stop_loss_percentage=2)
                 message = (f"🔺 New Buy order placed for {symbol} ({nice_interval}): Bullish crossover with support confirmation\n"
                         f"Support: {support}, Resistance: {resistance}\n"
                         f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
@@ -89,7 +89,7 @@ async def process_symbol(symbol):
                                         stoch_k.iloc[-1] < OVERBOUGHT and        # Moved out of overbought
                                         stoch_k.iloc[-2] >= OVERBOUGHT and       # Previously in overbought
                                         df['close'].iloc[-1] < resistance):      # Price below resistance
-                place_order(symbol, SIDE_SELL, usdt_balance, "Bearish crossover with resistance confirmation")
+                place_order(symbol, SIDE_SELL, usdt_balance, "Bearish crossover with resistance confirmation",  stop_loss_percentage=2)
                 message = (f"🔻 New Sell order placed for {symbol} ({nice_interval}): Bearish crossover with resistance confirmation\n"
                         f"Support: {support}, Resistance: {resistance}\n"
                         f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
@@ -97,11 +97,11 @@ async def process_symbol(symbol):
                 await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
-        await asyncio.sleep(5)
+        await asyncio.sleep(20)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(20)
 
 async def main():
     while True:
@@ -109,7 +109,7 @@ async def main():
             await process_symbol(symbol)
         # Sleep between iterations if necessary
         print("Sleeping for 60 seconds before scanning the next symbol...")
-        await asyncio.sleep(5)
+        await asyncio.sleep(20)
 
 if __name__ == "__main__":
     asyncio.run(main())

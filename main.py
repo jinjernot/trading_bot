@@ -5,19 +5,20 @@ from data.get_data import *
 from src.trade import *
 import asyncio
 
+import matplotlib.pyplot as plt
+
 from config.settings import *
-
-
 
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
+    
     try:
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
         print(f"Leverage set successfully for {symbol}.")
     except Exception as e:
         print(f"Error setting leverage for {symbol}: {e}")
         return
-
+    
     try:
         print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
         # Get Candles
@@ -40,14 +41,15 @@ async def process_symbol(symbol):
         # Get trend
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
+        
 
         # Close the trade
-        if position > 0:
+        if position > 0:  # Long position
             if roi >= 50:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
                 await send_telegram_message(message)
-            elif roi <= -10:  # New condition for negative ROI of -10%
+            elif roi <= -10:  # Negative ROI condition
                 close_position(symbol, SIDE_SELL, abs(position), "ROI <= -10%")
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
                 await send_telegram_message(message)
@@ -55,13 +57,17 @@ async def process_symbol(symbol):
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
                 await send_telegram_message(message)
+            elif df['close'].iloc[-1] >= resistance:  # Close long trade if price reaches resistance
+                close_position(symbol, SIDE_SELL, abs(position), "Price reached resistance level")
+                message = f"🔺 Long position closed for {symbol} ({nice_interval}): Price reached resistance level (Price: {df['close'].iloc[-1]:.2f}, Resistance: {resistance:.2f}) ⭕"
+                await send_telegram_message(message)
 
-        elif position < 0:
+        elif position < 0:  # Short position
             if roi >= 50:
                 close_position(symbol, SIDE_BUY, abs(position), "ROI >= 50%")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
                 await send_telegram_message(message)
-            elif roi <= -10:  # New condition for negative ROI of -10%
+            elif roi <= -10:  # Negative ROI condition
                 close_position(symbol, SIDE_BUY, abs(position), "ROI <= -10%")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
                 await send_telegram_message(message)
@@ -69,7 +75,23 @@ async def process_symbol(symbol):
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
                 await send_telegram_message(message)
-
+            elif df['close'].iloc[-1] <= support:  # Close short trade if price reaches support
+                close_position(symbol, SIDE_BUY, abs(position), "Price reached support level")
+                message = f"🔻 Short position closed for {symbol} ({nice_interval}): Price reached support level (Price: {df['close'].iloc[-1]:.2f}, Support: {support:.2f}) ⭕"
+                await send_telegram_message(message)
+                
+            # Plot
+        plt.figure(figsize=(10, 6))
+        plt.plot(stoch_k, label='%K', color='blue', alpha=0.7)
+        plt.plot(stoch_d, label='%D', color='red', alpha=0.7)
+        plt.axhline(OVERSOLD, color='green', linestyle='--', label='Oversold')
+        plt.axhline(OVERBOUGHT, color='orange', linestyle='--', label='Overbought')
+        plt.title('Stochastic Oscillator')
+        plt.xlabel('Time')
+        plt.ylabel('Value')
+        plt.legend()
+        plt.show()
+        
         # Open New Positions
         if position == 0:
             # Calculate ATR (Average True Range)
@@ -106,7 +128,7 @@ async def process_symbol(symbol):
                     stoch_k.iloc[-1] < OVERBOUGHT and
                     stoch_k.iloc[-2] >= OVERBOUGHT
                 ) or (
-                    df['rsi'].iloc[-1] > 70  # RSI above 70
+                    df['rsi'].iloc[-1] > 70
                 ) and abs(df['close'].iloc[-1] - resistance) <= atr.iloc[-1]
             ):
                 place_order(symbol, SIDE_SELL, usdt_balance, "Bearish entry with stochastic or RSI overbought", stop_loss_percentage=2)

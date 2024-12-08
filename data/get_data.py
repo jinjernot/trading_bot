@@ -1,9 +1,11 @@
 from config.secrets import API_KEY, API_SECRET
 import pandas as pd
 from binance.client import Client
+from config.settings import *
 
 client = Client(API_KEY, API_SECRET)
 
+# Get Token
 def get_symbol_info(symbol):
     info = client.futures_exchange_info()
     for s in info['symbols']:
@@ -11,7 +13,7 @@ def get_symbol_info(symbol):
             return s
     return None
 
-# Fetch available USDT balance
+# Get USDT balance
 def get_usdt_balance():
     balance = client.futures_account_balance()
     for asset in balance:
@@ -19,7 +21,7 @@ def get_usdt_balance():
             return float(asset['balance'])
     return 0.0
 
-# Update in the get_position function to calculate ROI and display as percentage
+# Get Position
 def get_position(symbol):
     try:
         positions = client.futures_position_information()
@@ -29,14 +31,8 @@ def get_position(symbol):
                 entry_price = float(pos['entryPrice'])
                 current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
                 
-                # Calculate the order size (Position Size in USD)
                 order_size = abs(position_amt) * entry_price
-                
-                # Assuming leverage is 10x (you can replace this with actual leverage if needed)
-                leverage = 10  # Replace with actual leverage if necessary
-                
-                # Calculate margin used based on leverage
-                margin_used = order_size / leverage  # Correct margin calculation
+                margin_used = order_size / leverage
                 
                 # Calculate unrealized profit
                 unrealized_profit = (current_price - entry_price) * position_amt

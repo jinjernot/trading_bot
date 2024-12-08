@@ -13,7 +13,6 @@ from binance.client import Client
 
 client = Client(API_KEY, API_SECRET)
 
-
 # Function to log trades
 def log_trade(data):
 
@@ -29,12 +28,17 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
 
-def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
-    if position_side == SIDE_BUY:  # Long position
-        return entry_price * (1 - stop_loss_percentage / 100)
-    elif position_side == SIDE_SELL:  # Short position
-        return entry_price * (1 + stop_loss_percentage / 100)
-
+def calculate_stop_loss(entry_price, position_size, risk_percentage):
+    # Calculate the total position value
+    position_value = entry_price * position_size
+    
+    # Calculate the risked value (how much you're willing to lose)
+    risked_value = position_value * (risk_percentage / 100)
+    
+    # Calculate the stop loss price
+    stop_loss_price = entry_price - (risked_value / position_size)
+    
+    return stop_loss_price
 
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
     trade_amount = usdt_balance * 0.5
@@ -46,7 +50,6 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         price = get_market_price(symbol)
         if price is None:
             return
-
         # Adjust the price for limit order based on symbol precision
         limit_price = round_price(symbol, price)
 
@@ -91,7 +94,7 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         if stop_loss_percentage is not None:
             # Calculate stop-loss price
             stop_loss_price = calculate_stop_loss(limit_price, side, stop_loss_percentage)
-            stop_loss_price = round_price(symbol, stop_loss_price)  # Ensure the price meets tick size
+            stop_loss_price = round_price(symbol, stop_loss_price)
 
             # Ensure stop_loss_side is correctly set
             stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY

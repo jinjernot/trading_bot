@@ -45,6 +45,7 @@ def get_position(symbol):
     except Exception as e:
         print(f"Error getting position for {symbol}: {e}")
         return 0, 0, 0, 0
+    
 # Function to get the current market price of the symbol
 def get_market_price(symbol):
     try:
@@ -87,8 +88,8 @@ def fetch_klines(symbol, interval, lookback='100'):
     df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
     
     # Calculate support and resistance levels
-    support = df['low'].min()  # Lowest price in the 'low' column
-    resistance = df['high'].max()  # Highest price in the 'high' column
+    support = df['low'].min()
+    resistance = df['high'].max()
     
     # Calculate ATR
     df['high_low'] = df['high'] - df['low']
@@ -105,19 +106,12 @@ def fetch_klines(symbol, interval, lookback='100'):
 
 # Function to calculate support and resistance levels
 def calculate_support_resistance(df):
-    support = df['low'].min()  # Lowest price in the 'low' column
-    resistance = df['high'].max()  # Highest price in the 'high' column
+    support = df['low'].min()
+    resistance = df['high'].max()
     return support, resistance
 
-
+# Get trend
 def detect_trend(df):
-    """
-    Detects the market trend using higher highs and lower lows.
-    
-    :param df: DataFrame containing historical candlestick data.
-    :return: 'uptrend', 'downtrend', or 'sideways' based on higher highs and lower lows.
-    """
-    # Initialize trend as 'sideways' (neutral)
     trend = 'sideways'
     
     # Loop through the DataFrame starting from the second index
@@ -143,13 +137,6 @@ def detect_trend(df):
 
 # Function to check proximity to support/resistance using ATR
 def is_close_to_level(price, level, atr, multiplier=1.0):
-    """
-    Determines if the price is close to a given level within an ATR-based proximity range.
-    :param price: Current market price.
-    :param level: Support or resistance level.
-    :param atr: Average True Range value.
-    :param multiplier: Multiplier to adjust the proximity range (default 1.0).
-    :return: True if price is within the range, False otherwise.
-    """
+
     proximity_range = atr * multiplier
     return abs(price - level) <= proximity_range

@@ -19,21 +19,6 @@ def calculate_stoch(high, low, close, PERIOD, K, D):
     stoch_d = smoothed_k.rolling(D).mean()  # Smooth %D over D periods
     return smoothed_k, stoch_d
 
-        # Calculate the smoothed Stochastic Oscillator
-    smoothed_k, smoothed_d = calculate_stoch_smooth(data['High'], data['Low'], data['Close'], PERIOD, K, D)
-
-    # Plot the smoothed Stochastic Oscillator
-    plt.figure(figsize=(10, 6))
-    plt.plot(smoothed_k, label='Smoothed %K', color='blue', alpha=0.7)
-    plt.plot(smoothed_d, label='Smoothed %D', color='red', alpha=0.7)
-    plt.axhline(OVERSOLD, color='green', linestyle='--', label='Oversold')
-    plt.axhline(OVERBOUGHT, color='orange', linestyle='--', label='Overbought')
-    plt.title('Smoothed Stochastic Oscillator')
-    plt.xlabel('Time')
-    plt.ylabel('Value')
-    plt.legend()
-    plt.show()
-
 def calculate_rsi(df, period=14):
     """Calculate RSI using closing prices."""
     delta = df['close'].diff()

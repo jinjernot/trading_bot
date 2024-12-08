@@ -21,7 +21,6 @@ def log_trade(data):
         with open(LOG_FILE, 'w') as f:
             json.dump([], f) 
 
-    # Append new trade log to the file
     with open(LOG_FILE, 'r') as f:
         logs = json.load(f)
     logs.append(data) 
@@ -29,11 +28,8 @@ def log_trade(data):
     with open(LOG_FILE, 'w') as f:
         json.dump(logs, f, indent=4)
         
-        
+
 def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
-    """
-    Calculate the stop-loss price based on the entry price and position side.
-    """
     if position_side == SIDE_BUY:  # Long position
         return entry_price * (1 - stop_loss_percentage / 100)
     elif position_side == SIDE_SELL:  # Short position
@@ -41,11 +37,10 @@ def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
 
 
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
-    trade_amount = usdt_balance * 0.4  # 34% of available USDT balance
+    trade_amount = usdt_balance * 0.5
     print(f"34% of available USDT balance for trade: {trade_amount}")
 
     try:
-        # Ensure margin type is isolated
         set_margin_type(symbol, margin_type='ISOLATED')
 
         price = get_market_price(symbol)
@@ -77,7 +72,7 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
             quantity=quantity,
             price=limit_price,
             timeInForce=TIME_IN_FORCE_GTC,
-            reduceOnly=reduce_only  # Set reduceOnly parameter
+            reduceOnly=reduce_only
         )
         print(f"Order placed successfully: {order}")
 
@@ -112,7 +107,7 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
             # Ensure quantity is greater than zero
             if quantity <= 0:
                 print("Invalid quantity for stop-loss order.")
-                return  # Exit if quantity is not valid
+                return 
 
             try:
                 # Place stop-loss limit order
@@ -120,8 +115,8 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
                     symbol=symbol,
                     side=stop_loss_side,
                     type=FUTURE_ORDER_TYPE_STOP,
-                    stopPrice=stop_loss_price,  # Price at which stop is triggered
-                    price=stop_loss_price,      # Limit price for execution
+                    stopPrice=stop_loss_price,
+                    price=stop_loss_price,
                     quantity=quantity,
                     timeInForce=TIME_IN_FORCE_GTC  # Good Till Canceled
                 )
@@ -131,8 +126,6 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
     except Exception as e:
         print(f"Error placing order: {e}")
 
-                
-        
 def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
@@ -145,9 +138,9 @@ def close_position(symbol, side, quantity, reason_to_close):
 
         # Adjust the price slightly for limit orders
         if side == SIDE_BUY:
-            limit_price = price * 1.01  # 1% above current price
+            limit_price = price * 1.01
         elif side == SIDE_SELL:
-            limit_price = price * 0.99  # 1% below current price
+            limit_price = price * 0.99
 
         # Align limit price with the tick size
         limit_price = round_price(symbol, limit_price)
@@ -157,9 +150,9 @@ def close_position(symbol, side, quantity, reason_to_close):
             side=side,
             type=ORDER_TYPE_LIMIT,
             quantity=quantity,
-            price=limit_price,  # Use the aligned price
-            timeInForce=TIME_IN_FORCE_GTC,  # Good Till Canceled
-            reduceOnly=True  # Explicitly set reduceOnly to True
+            price=limit_price,
+            timeInForce=TIME_IN_FORCE_GTC,
+            reduceOnly=True
         )
         print(f"Position closed successfully: {order}")
 
@@ -179,7 +172,6 @@ def close_position(symbol, side, quantity, reason_to_close):
     except Exception as e:
         print(f"Error closing position: {e}")      
         
-          
 def set_margin_type(symbol, margin_type='ISOLATED'):
     try:
         response = client.futures_change_margin_type(symbol=symbol, marginType=margin_type)

@@ -1,6 +1,9 @@
+from data.plot_stoch import plot_stochastic
+
 from binance.enums import *
 from src.telegram_bot import *
 from data.indicators import *
+
 from data.get_data import *
 from src.trade import *
 import asyncio
@@ -28,7 +31,7 @@ async def process_symbol(symbol):
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
         print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
         print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
-
+        
         # Get current position and ROI
         position, roi, unrealized_profit, margin_used = get_position(symbol)
         print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}")
@@ -42,7 +45,6 @@ async def process_symbol(symbol):
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
         
-
         # Close the trade
         if position > 0:  # Long position
             if roi >= 50:
@@ -80,18 +82,6 @@ async def process_symbol(symbol):
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): Price reached support level (Price: {df['close'].iloc[-1]:.2f}, Support: {support:.2f}) ⭕"
                 await send_telegram_message(message)
                 
-            # Plot
-        plt.figure(figsize=(10, 6))
-        plt.plot(stoch_k, label='%K', color='blue', alpha=0.7)
-        plt.plot(stoch_d, label='%D', color='red', alpha=0.7)
-        plt.axhline(OVERSOLD, color='green', linestyle='--', label='Oversold')
-        plt.axhline(OVERBOUGHT, color='orange', linestyle='--', label='Overbought')
-        plt.title('Stochastic Oscillator')
-        plt.xlabel('Time')
-        plt.ylabel('Value')
-        plt.legend()
-        plt.show()
-        
         # Open New Positions
         if position == 0:
             # Calculate ATR (Average True Range)
@@ -120,6 +110,9 @@ async def process_symbol(symbol):
                 )
                 await send_telegram_message(message)
 
+                # Call the external function to plot the stochastic chart
+                plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
+
             # Short
             if trend == 'downtrend' and (
                 (
@@ -139,6 +132,9 @@ async def process_symbol(symbol):
                     f"RSI: {df['rsi'].iloc[-1]:.2f}, Price: {df['close'].iloc[-1]:.2f}"
                 )
                 await send_telegram_message(message)
+
+                # Call the external function to plot the stochastic chart
+                plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
         
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(20)

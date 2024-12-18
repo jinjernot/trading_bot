@@ -1,9 +1,11 @@
 from binance.enums import *
-from src.trade import place_order
-from data.indicators import *
+
 from src.telegram_bot import send_telegram_message
-from config.settings import *
+from src.trade import place_order
+
+from data.indicators import *
 from data.plot_stoch import plot_stochastic
+from config.settings import *
 
 async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr):
     if position == 0:

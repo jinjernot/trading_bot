@@ -79,7 +79,7 @@ def round_price(symbol, price):
 
 # Updated fetch_klines function
 def fetch_klines(symbol, interval, lookback='100'):
-    print(f"Fetching klines for {symbol} with interval {interval} and lookback {lookback}")
+    print(f"Fetching candles for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
                                        'volume', 'close_time', 'quote_volume', 

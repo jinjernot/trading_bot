@@ -1,15 +1,15 @@
-
-from binance.enums import *
-from src.telegram_bot import *
-from data.indicators import *
 from src.close_position import *
 from src.open_position import *
+from src.trade import *
 
 from data.get_data import *
-from src.trade import *
+from data.indicators import *
+
+from src.telegram_bot import *
+from config.settings import *
+
 import asyncio
 
-from config.settings import *
 
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
@@ -17,6 +17,7 @@ async def process_symbol(symbol):
     try:
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
         print(f"Leverage set successfully for {symbol}.")
+        
     except Exception as e:
         print(f"Error setting leverage for {symbol}: {e}")
         return
@@ -28,6 +29,7 @@ async def process_symbol(symbol):
 
         # Calculate Stochastic indicators
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
+        
         print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
         print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
         
@@ -48,12 +50,13 @@ async def process_symbol(symbol):
         message = None
         if position > 0:
             message = close_position_long(symbol, position, roi, df, stoch_k, resistance)
+            
         elif position < 0:
-            message = close_position_short(symbol, position, roi, df, stoch_k, support)
+            message = await close_position_short(symbol, position, roi, df, stoch_k, support)
 
         if message:
             print(message)
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
 
         # Open new positions if no position is open
         if position == 0:
@@ -61,7 +64,7 @@ async def process_symbol(symbol):
             message = await open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
             if message:
                 print(message)
-                await send_telegram_message(message)
+                #await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(60)

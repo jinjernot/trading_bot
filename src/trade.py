@@ -32,6 +32,8 @@ def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
     """
     Calculate the stop-loss price based on the entry price and position side.
     """
+    stop_loss_percentage /= 4
+    
     if position_side == SIDE_BUY:  # Long position
         return entry_price * (1 - stop_loss_percentage / 100)
     elif position_side == SIDE_SELL:  # Short position
@@ -77,8 +79,9 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         )
         print(f"Order placed successfully: {order}")
 
-        # Log trade details
+        # Log trade details with symbol
         log_trade({
+            "symbol": symbol,  # Added symbol
             "USDT_balance_before_trade": usdt_balance,
             "trade_side": side,
             "trade_quantity": quantity,
@@ -160,8 +163,9 @@ def close_position(symbol, side, quantity, reason_to_close):
         # Fetch updated USDT balance
         new_usdt_balance = get_usdt_balance()
 
-        # Log trade details
+        # Log trade details with symbol
         log_trade({
+            "symbol": symbol,  # Added symbol
             "new_USDT_balance": new_usdt_balance,
             "closing_side": side,
             "closing_quantity": quantity,

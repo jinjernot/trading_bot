@@ -1,11 +1,12 @@
-# close_positions.py
 from binance.enums import *
+
 from src.telegram_bot import send_telegram_message
 from src.trade import close_position
+
 from data.indicators import *
 from config.settings import *
 
-def close_position_long(symbol, position, roi, df, stoch_k, resistance):
+async def close_position_long(symbol, position, roi, df, stoch_k, resistance):
     if roi >= 50:
         close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
         message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"

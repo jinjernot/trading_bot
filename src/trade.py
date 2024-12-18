@@ -28,17 +28,15 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
 
-def calculate_stop_loss(entry_price, position_size, risk_percentage):
-    # Calculate the total position value
-    position_value = entry_price * position_size
-    
-    # Calculate the risked value (how much you're willing to lose)
-    risked_value = position_value * (risk_percentage / 100)
-    
-    # Calculate the stop loss price
-    stop_loss_price = entry_price - (risked_value / position_size)
-    
-    return stop_loss_price
+def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
+    """
+    Calculate the stop-loss price based on the entry price and position side.
+    """
+    if position_side == SIDE_BUY:  # Long position
+        return entry_price * (1 - stop_loss_percentage / 100)
+    elif position_side == SIDE_SELL:  # Short position
+        return entry_price * (1 + stop_loss_percentage / 100)
+
 
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
     trade_amount = usdt_balance * 0.5

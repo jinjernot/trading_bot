@@ -32,13 +32,13 @@ async def open_position_logic(symbol, usdt_balance, df, stoch_k, resistance, sup
         if stoch_k.iloc[-1] < 20 and df['close'].iloc[-1] <= support:
             await place_order(symbol, SIDE_BUY, quantity, "Stochastic oversold and price near support")
             message = f"🟢 Opened LONG position for {symbol} ({nice_interval}): Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f}) and price near support ({support:.2f})"
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
 
         # Sell condition: Stochastic K is overbought and price near resistance
         elif stoch_k.iloc[-1] > 80 and df['close'].iloc[-1] >= resistance:
             await place_order(symbol, SIDE_SELL, quantity, "Stochastic overbought and price near resistance")
             message = f"🔴 Opened SHORT position for {symbol} ({nice_interval}): Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f}) and price near resistance ({resistance:.2f})"
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
 
         else:
             print(f"No open position conditions met for {symbol}.")

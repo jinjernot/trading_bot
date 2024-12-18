@@ -12,99 +12,152 @@ import matplotlib.pyplot as plt
 
 from config.settings import *
 
-async def set_leverage(symbol):
-    """Set leverage for the given symbol."""
+def close_position_long(symbol, position, roi, df, stoch_k, resistance):
+    if roi >= 50:
+        close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
+        message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
+    elif roi <= -10:
+        close_position(symbol, SIDE_SELL, abs(position), "ROI <= -10%")
+        message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
+    elif stoch_k.iloc[-1] > OVERBOUGHT:
+        close_position(symbol, SIDE_SELL, abs(position), "Stochastic overbought threshold")
+        message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic overbought (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
+    elif df['close'].iloc[-1] >= resistance:
+        close_position(symbol, SIDE_SELL, abs(position), "Price reached resistance level")
+        message = f"🔺 Long position closed for {symbol} ({nice_interval}): Price reached resistance level (Price: {df['close'].iloc[-1]:.2f}, Resistance: {resistance:.2f}) ⭕"
+    else:
+        return False
+    #await send_telegram_message(message)
+    return True
+
+async def close_position_short(symbol, position, roi, df, stoch_k, support):
+    if roi >= 50:
+        close_position(symbol, SIDE_BUY, abs(position), "ROI >= 50%")
+        message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
+    elif roi <= -10:
+        close_position(symbol, SIDE_BUY, abs(position), "ROI <= -10%")
+        message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
+    elif stoch_k.iloc[-1] < OVERSOLD:
+        close_position(symbol, SIDE_BUY, abs(position), "Stochastic oversold threshold")
+        message = f"🔻 Short position closed for {symbol} ({nice_interval}): Stochastic oversold (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
+    elif df['close'].iloc[-1] <= support:
+        close_position(symbol, SIDE_BUY, abs(position), "Price reached support level")
+        message = f"🔻 Short position closed for {symbol} ({nice_interval}): Price reached support level (Price: {df['close'].iloc[-1]:.2f}, Support: {support:.2f}) ⭕"
+    else:
+        return False
+    #await send_telegram_message(message)
+    return True
+
+async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr):
+    if position == 0:
+        # Long
+        if trend == 'uptrend' and (
+            (
+                stoch_k.iloc[-1] > stoch_d.iloc[-1] and
+                stoch_k.iloc[-2] <= stoch_d.iloc[-2] and
+                stoch_k.iloc[-1] > OVERSOLD and
+                stoch_k.iloc[-2] <= OVERSOLD
+            ) or (
+                df['rsi'].iloc[-1] < 30 
+            ) and abs(df['close'].iloc[-1] - support) <= atr.iloc[-1]
+        ):
+            place_order(symbol, SIDE_BUY, usdt_balance, "Bullish entry with stochastic or RSI oversold", stop_loss_percentage=2)
+            message = (
+                f"🔺 New Buy order placed for {symbol} ({nice_interval}): Bullish entry with stochastic or RSI oversold\n"
+                f"Support: {support}, Resistance: {resistance}, ATR: {atr.iloc[-1]:.2f}\n"
+                f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
+                f"RSI: {df['rsi'].iloc[-1]:.2f}, Price: {df['close'].iloc[-1]:.2f}"
+            )
+            #await send_telegram_message(message)
+            plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
+
+        # Short
+        if trend == 'downtrend' and (
+            (
+                stoch_k.iloc[-1] < stoch_d.iloc[-1] and
+                stoch_k.iloc[-2] >= stoch_d.iloc[-2] and
+                stoch_k.iloc[-1] < OVERBOUGHT and
+                stoch_k.iloc[-2] >= OVERBOUGHT
+            ) or (
+                df['rsi'].iloc[-1] > 70
+            ) and abs(df['close'].iloc[-1] - resistance) <= atr.iloc[-1]
+        ):
+            place_order(symbol, SIDE_SELL, usdt_balance, "Bearish entry with stochastic or RSI overbought", stop_loss_percentage=2)
+            message = (
+                f"🔻 New Sell order placed for {symbol} ({nice_interval}): Bearish entry with stochastic or RSI overbought\n"
+                f"Support: {support}, Resistance: {resistance}, ATR: {atr.iloc[-1]:.2f}\n"
+                f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
+                f"RSI: {df['rsi'].iloc[-1]:.2f}, Price: {df['close'].iloc[-1]:.2f}"
+            )
+            #await send_telegram_message(message)
+            plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
+
+
+
+
+async def process_symbol(symbol):
+    print(f"Setting leverage for {symbol} to {leverage}")
+    
     try:
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
         print(f"Leverage set successfully for {symbol}.")
     except Exception as e:
         print(f"Error setting leverage for {symbol}: {e}")
-
-def should_close_position(position, roi, stoch_k, price, support, resistance, symbol):
-    """Determine if the position should be closed."""
-    if position > 0:  # Long position
-        return (
-            (roi >= 50, "ROI >= 50%"),
-            (roi <= -10, "ROI <= -10%"),
-            (stoch_k.iloc[-1] > OVERBOUGHT, "Stochastic overbought threshold"),
-            (price >= resistance, "Price reached resistance level")
-        )
-    elif position < 0:  # Short position
-        return (
-            (roi >= 50, "ROI >= 50%"),
-            (roi <= -10, "ROI <= -10%"),
-            (stoch_k.iloc[-1] < OVERSOLD, "Stochastic oversold threshold"),
-            (price <= support, "Price reached support level")
-        )
-    return []
-
-async def process_position(symbol, position, roi, stoch_k, price, support, resistance):
-    """Handle closing an open position."""
-    close_reasons = should_close_position(position, roi, stoch_k, price, support, resistance, symbol)
-    for should_close, reason in close_reasons:
-        if should_close:
-            side = SIDE_SELL if position > 0 else SIDE_BUY
-            close_position(symbol, side, abs(position), reason)
-            await send_telegram_message(f"Position closed for {symbol}: {reason} (ROI: {roi:.2f}%)")
-            return True
-    return False
-
-async def open_position(symbol, trend, stoch_k, stoch_d, atr, price, support, resistance, usdt_balance):
-    """Open a new position based on trend and stochastic indicators."""
-    if trend == 'uptrend':
-        if (
-            (stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-1] > OVERSOLD) or
-            (price <= support + atr)
-        ):
-            place_order(symbol, SIDE_BUY, usdt_balance, "Bullish entry detected", stop_loss_percentage=2)
-            await send_telegram_message(f"New long position opened for {symbol}.")
-            return True
-    elif trend == 'downtrend':
-        if (
-            (stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-1] < OVERBOUGHT) or
-            (price >= resistance - atr)
-        ):
-            place_order(symbol, SIDE_SELL, usdt_balance, "Bearish entry detected", stop_loss_percentage=2)
-            await send_telegram_message(f"New short position opened for {symbol}.")
-            return True
-    return False
-
-async def process_symbol(symbol):
-    """Main processing logic for a single symbol."""
-    print(f"Setting leverage for {symbol} to {leverage}")
-    await set_leverage(symbol)
-
-    print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
+        return
+    
     try:
-        # Fetch data
-        df, support, resistance, atr = fetch_klines(symbol, interval)
+        print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
+        # Get Candles
+        df, support, resistance, atr  = fetch_klines(symbol, interval)
+
+        # Calculate Stochastic indicators
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
-        position, roi, _, _ = get_position(symbol)
+        print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
+        print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
+        
+        # Get current position and ROI
+        position, roi, unrealized_profit, margin_used = get_position(symbol)
+        print(f"Position for {symbol}: {position}, ROI: {roi:.2f}%, Unrealized Profit: {unrealized_profit:.2f}")
+        print(f"Margin Used for {symbol}: {margin_used}")
+
+        # Get USDT balance
         usdt_balance = get_usdt_balance()
+        print(f"Available USDT balance for {symbol}: {usdt_balance}")
+
+        # Get trend
         trend = detect_trend(df)
+        print(f"Market trend for {symbol}: {trend}")
+        
+        # Close positions
+        message = None
+        if position > 0:
+            message = close_position_long(symbol, position, roi, df, stoch_k, resistance)
+        elif position < 0:
+            message = close_position_short(symbol, position, roi, df, stoch_k, support)
 
-        # Close existing position
-        if await process_position(symbol, position, roi, stoch_k, df['close'].iloc[-1], support, resistance):
-            return
+        if message:
+            print(message)
+            await send_telegram_message(message)
 
-        # Open a new position if none exist
+        # Open new positions if no position is open
         if position == 0:
-            await open_position(symbol, trend, stoch_k, stoch_d, atr, df['close'].iloc[-1], support, resistance, usdt_balance)
+            df = calculate_rsi(df, period=14)
+            message = open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+            if message:
+                print(message)
+                await send_telegram_message(message)
 
-        plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(60)
+
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
-        await asyncio.sleep(20)
+        await asyncio.sleep(60)
 
 async def main():
-    """Main function to process all symbols."""
     while True:
-        for symbol in symbols:
-            await process_symbol(symbol)
-        print("Sleeping for 60 seconds before scanning the next symbol...")
-        await asyncio.sleep(60)
+        tasks = [process_symbol(symbol) for symbol in symbols]
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -12,6 +12,20 @@ import matplotlib.pyplot as plt
 
 from config.settings import *
 
+
+async def cancel_open_orders(symbol):
+    try:
+        open_orders = client.futures_get_open_orders(symbol=symbol)
+        for order in open_orders:
+            if order['type'] == 'FUTURE_ORDER_TYPE_STOP' or order['type'] == 'STOP':
+                client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
+                print(f"Canceled stop-loss order for {symbol}, Order ID: {order['orderId']}")
+    except Exception as e:
+        print(f"Error canceling open orders for {symbol}: {e}")
+
+
+
+
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
     
@@ -49,22 +63,27 @@ async def process_symbol(symbol):
         if position > 0:  # Long position
             if roi >= 50:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
+                await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
                 await send_telegram_message(message)
             elif roi <= -10:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI <= -10%")
+                await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] > OVERBOUGHT and stoch_k.iloc[-2] <= OVERBOUGHT:  # Cross above overbought
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic K crossed above overbought threshold")
+                await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic K crossed above overbought (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
                 await send_telegram_message(message)
             elif stoch_k.iloc[-1] < 50 and stoch_k.iloc[-2] >= 50:  # Cross below midline
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic K dropped below midline")
+                await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic K dropped below midline (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
                 await send_telegram_message(message)
             elif df['close'].iloc[-1] >= resistance:
                 close_position(symbol, SIDE_SELL, abs(position), "Price reached resistance level")
+                await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Price reached resistance level (Price: {df['close'].iloc[-1]:.2f}, Resistance: {resistance:.2f}) ⭕"
                 await send_telegram_message(message)
 

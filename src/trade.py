@@ -32,7 +32,7 @@ def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
     """
     Calculate the stop-loss price based on the entry price and position side.
     """
-    stop_loss_percentage /= 4
+    stop_loss_percentage /= 3
     
     if position_side == SIDE_BUY:  # Long position
         return entry_price * (1 - stop_loss_percentage / 100)

@@ -1,7 +1,7 @@
 from src.close_position import *
 from src.open_position import *
 from src.trade import *
-
+  
 from data.get_data import *
 from data.indicators import *
 
@@ -9,7 +9,6 @@ from src.telegram_bot import *
 from config.settings import *
 
 import asyncio
-
 
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
@@ -49,14 +48,14 @@ async def process_symbol(symbol):
         # Close positions
         message = None
         if position > 0:
-            message = close_position_long(symbol, position, roi, df, stoch_k, resistance)
+            message = await close_position_long(symbol, position, roi, df, stoch_k, resistance)
             
         elif position < 0:
             message = await close_position_short(symbol, position, roi, df, stoch_k, support)
 
         if message:
             print(message)
-            #await send_telegram_message(message)
+            await send_telegram_message(message)
 
         # Open new positions if no position is open
         if position == 0:
@@ -64,7 +63,7 @@ async def process_symbol(symbol):
             message = await open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
             if message:
                 print(message)
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(60)

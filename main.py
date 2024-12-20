@@ -61,49 +61,49 @@ async def process_symbol(symbol):
                 close_position(symbol, SIDE_SELL, abs(position), "ROI >= 50%")
                 await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif roi <= -10:
                 close_position(symbol, SIDE_SELL, abs(position), "ROI <= -10%")
                 await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif stoch_k.iloc[-1] > OVERBOUGHT and stoch_k.iloc[-2] <= OVERBOUGHT:  # Cross above overbought
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic K crossed above overbought threshold")
                 await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic K crossed above overbought (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif stoch_k.iloc[-1] < 50 and stoch_k.iloc[-2] >= 50:  # Cross below midline
                 close_position(symbol, SIDE_SELL, abs(position), "Stochastic K dropped below midline")
                 await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Stochastic K dropped below midline (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif df['close'].iloc[-1] >= resistance:
                 close_position(symbol, SIDE_SELL, abs(position), "Price reached resistance level")
                 await cancel_open_orders(symbol)
                 message = f"🔺 Long position closed for {symbol} ({nice_interval}): Price reached resistance level (Price: {df['close'].iloc[-1]:.2f}, Resistance: {resistance:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
 
         elif position < 0:  # Short position
             if roi >= 50:
                 close_position(symbol, SIDE_BUY, abs(position), "ROI >= 50%")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI >= 50% (Current ROI: {roi:.2f}%) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif roi <= -10:
                 close_position(symbol, SIDE_BUY, abs(position), "ROI <= -10%")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): ROI <= -10% (Current ROI: {roi:.2f}%) ❌"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif stoch_k.iloc[-1] < OVERSOLD and stoch_k.iloc[-2] >= OVERSOLD:  # Cross below oversold
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic K crossed below oversold threshold")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): Stochastic K crossed below oversold (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif stoch_k.iloc[-1] > 50 and stoch_k.iloc[-2] <= 50:  # Cross above midline
                 close_position(symbol, SIDE_BUY, abs(position), "Stochastic K crossed above midline")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): Stochastic K crossed above midline (Stochastic K: {stoch_k.iloc[-1]:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
             elif df['close'].iloc[-1] <= support:
                 close_position(symbol, SIDE_BUY, abs(position), "Price reached support level")
                 message = f"🔻 Short position closed for {symbol} ({nice_interval}): Price reached support level (Price: {df['close'].iloc[-1]:.2f}, Support: {support:.2f}) ⭕"
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
                         
         # Open New Positions
         if position == 0:
@@ -127,7 +127,7 @@ async def process_symbol(symbol):
                     f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                     f"Price: {df['close'].iloc[-1]:.2f}"
                 )
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
                 plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
 
             # Short
@@ -144,7 +144,7 @@ async def process_symbol(symbol):
                     f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                     f"Price: {df['close'].iloc[-1]:.2f}"
                 )
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
                 plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
             
         print(f"Sleeping for 60 seconds...\n")

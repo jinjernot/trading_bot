@@ -59,7 +59,7 @@ async def process_symbol(symbol):
 
         if message:
             print(message)
-            #await send_telegram_message(message)
+            await send_telegram_message(message)
 
         # Open new positions if no position is open
         if position == 0:
@@ -67,7 +67,7 @@ async def process_symbol(symbol):
             message = await open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
             if message:
                 print(message)
-                #await send_telegram_message(message)
+                await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(60)

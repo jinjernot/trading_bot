@@ -30,15 +30,10 @@ def get_position(symbol):
                 position_amt = float(pos['positionAmt'])
                 entry_price = float(pos['entryPrice'])
                 current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
-                
                 order_size = abs(position_amt) * entry_price
                 margin_used = order_size / leverage
-                
-                # Calculate unrealized profit
                 unrealized_profit = (current_price - entry_price) * position_amt
-                
-                # Calculate ROI
-                roi = (unrealized_profit / margin_used) * 100  # ROI as a percentage of margin used
+                roi = (unrealized_profit / margin_used) * 100 
                 
                 return position_amt, roi, unrealized_profit, margin_used
         return 0, 0, 0, 0
@@ -46,7 +41,7 @@ def get_position(symbol):
         print(f"Error getting position for {symbol}: {e}")
         return 0, 0, 0, 0
     
-# Function to get the current market price of the symbol
+# Get price
 def get_market_price(symbol):
     try:
         price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
@@ -77,7 +72,7 @@ def round_price(symbol, price):
             return price
     return price
 
-# Updated fetch_klines function
+# Get candles
 def fetch_klines(symbol, interval, lookback='100'):
     print(f"Fetching candles for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
@@ -98,7 +93,6 @@ def fetch_klines(symbol, interval, lookback='100'):
     df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
     df['atr'] = df['true_range'].rolling(window=14).mean()  # 14-period ATR
     
-    print(f"Fetched {len(df)} rows of data.")
     print(f"Support: {support}, Resistance: {resistance}")
     
     # Return the DataFrame along with support and resistance levels, and ATR

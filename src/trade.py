@@ -38,11 +38,22 @@ def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
         return entry_price * (1 - stop_loss_percentage / 100)
     elif position_side == SIDE_SELL:  # Short position
         return entry_price * (1 + stop_loss_percentage / 100)
+    
+
+async def cancel_open_orders(symbol):
+    try:
+        open_orders = client.futures_get_open_orders(symbol=symbol)
+        for order in open_orders:
+            if order['type'] == 'FUTURE_ORDER_TYPE_STOP' or order['type'] == 'STOP':
+                client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
+                print(f"Canceled stop-loss order for {symbol}, Order ID: {order['orderId']}")
+    except Exception as e:
+        print(f"Error canceling open orders for {symbol}: {e}")
 
 
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
-    trade_amount = usdt_balance * 0.5
-    print(f"34% of available USDT balance for trade: {trade_amount}")
+    trade_amount = usdt_balance * 1
+    print(f"USDT balance for trade: {trade_amount}")
 
     try:
         set_margin_type(symbol, margin_type='ISOLATED')
@@ -122,7 +133,7 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
                     stopPrice=stop_loss_price,
                     price=stop_loss_price,
                     quantity=quantity,
-                    timeInForce=TIME_IN_FORCE_GTC  # Good Till Canceled
+                    timeInForce=TIME_IN_FORCE_GTC
                 )
                 print(f"Stop-loss order placed successfully: {stop_loss_order}")
             except Exception as e:

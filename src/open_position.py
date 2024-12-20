@@ -4,7 +4,7 @@ from src.telegram_bot import send_telegram_message
 from src.trade import place_order
 
 from data.indicators import *
-from data.plot_stoch import plot_stochastic
+from data.plot import plot_stochastic
 from config.settings import *
 
 async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr):
@@ -23,7 +23,7 @@ async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_
                 f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                 f"Price: {df['close'].iloc[-1]:.2f}"
             )
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
             plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
             return message
         
@@ -41,7 +41,7 @@ async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_
                 f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                 f"Price: {df['close'].iloc[-1]:.2f}"
             )
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
             plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
             return message
     return None

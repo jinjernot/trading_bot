@@ -26,11 +26,15 @@ async def process_symbol(symbol):
         # Get Candles
         df, support, resistance, atr  = fetch_klines(symbol, interval)
 
-        # Calculate Stochastic indicators
+        # Calculate Stochastic
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
         
         print(f"Stochastic K for {symbol}: {stoch_k.iloc[-3:].values}")
         print(f"Stochastic D for {symbol}: {stoch_d.iloc[-3:].values}")
+
+        # Calculate RSI
+        df = calculate_rsi(df, period=14)
+        print(f"RSI for {symbol}: {df['rsi'].iloc[-3:].values}")
         
         # Get current position and ROI
         position, roi, unrealized_profit, margin_used = get_position(symbol)
@@ -55,7 +59,7 @@ async def process_symbol(symbol):
 
         if message:
             print(message)
-            await send_telegram_message(message)
+            #await send_telegram_message(message)
 
         # Open new positions if no position is open
         if position == 0:
@@ -63,7 +67,7 @@ async def process_symbol(symbol):
             message = await open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
             if message:
                 print(message)
-                await send_telegram_message(message)
+                #await send_telegram_message(message)
 
         print(f"Sleeping for 60 seconds...\n")
         await asyncio.sleep(60)

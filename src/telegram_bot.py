@@ -6,10 +6,14 @@ bot = Bot(token=TELEGRAM_TOKEN)
 
 semaphore = asyncio.Semaphore(5) 
 
-async def send_telegram_message(message):
+async def send_telegram_message(message, parse_mode="Markdown"):
     async with semaphore:
         try:
-            await bot.send_message(chat_id=CHAT_ID, text=message)
+            await bot.send_message(
+                chat_id=CHAT_ID,
+                text=message,
+                parse_mode=parse_mode  # Add the parse_mode argument here
+            )
             await asyncio.sleep(0.5)
         except Exception as e:
             print(f"Error sending message: {e}")

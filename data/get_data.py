@@ -85,18 +85,11 @@ def fetch_klines(symbol, interval, lookback='100'):
     # Calculate support and resistance levels
     support = df['low'].min()
     resistance = df['high'].max()
-    
-    # Calculate ATR
-    df['high_low'] = df['high'] - df['low']
-    df['high_close'] = abs(df['high'] - df['close'].shift())
-    df['low_close'] = abs(df['low'] - df['close'].shift())
-    df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
-    df['atr'] = df['true_range'].rolling(window=14).mean()  # 14-period ATR
-    
+        
     print(f"Support: {support}, Resistance: {resistance}")
     
-    # Return the DataFrame along with support and resistance levels, and ATR
-    return df, support, resistance, df['atr'].iloc[-1] 
+    # Return the DataFrame along with support and resistance levels
+    return df, support, resistance 
 
 # Function to calculate support and resistance levels
 def calculate_support_resistance(df):
@@ -128,9 +121,3 @@ def detect_trend(df):
             trend = 'sideways'
 
     return trend
-
-# Function to check proximity to support/resistance using ATR
-def is_close_to_level(price, level, atr, multiplier=1.0):
-
-    proximity_range = atr * multiplier
-    return abs(price - level) <= proximity_range

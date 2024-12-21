@@ -148,18 +148,18 @@ async def process_symbol(symbol):
                 plot_stochastic(stoch_k, stoch_d, symbol, OVERSOLD, OVERBOUGHT)
             
         print(f"Sleeping for 60 seconds...\n")
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
 
 async def main():
     while True:
         for symbol in symbols:
             await process_symbol(symbol)
         print("Sleeping for 60 seconds before scanning the next symbol...")
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(main())

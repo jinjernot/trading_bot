@@ -48,6 +48,7 @@ async def process_symbol(symbol):
         # Get trend
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
+        print(f"--- End Iteration {symbol} ({nice_interval}) ---\n")
         
         # Close positions
         message = None
@@ -63,9 +64,9 @@ async def process_symbol(symbol):
         # Open new positions
         if position == 0:
             if trend == 'uptrend':
-                message = await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+                message = await open_position_long(symbol, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
             elif trend == 'downtrend':
-                message = await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+                message = await open_position_short(symbol, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
        
             if message:
                 print(message)

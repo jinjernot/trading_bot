@@ -1,5 +1,5 @@
 from src.close_position import *
-from src.open_position import *
+from src.open_position_copy import *
 from src.trade import *
   
 from data.get_data import *
@@ -53,7 +53,6 @@ async def process_symbol(symbol):
         message = None
         if position > 0:
             message = await close_position_long(symbol, position, roi, df, stoch_k, resistance)
-            
         elif position < 0:
             message = await close_position_short(symbol, position, roi, df, stoch_k, support)
 
@@ -61,16 +60,16 @@ async def process_symbol(symbol):
             print(message)
             await send_telegram_message(message)
 
-        # Open new positions if no position is open
+        # Open new positions
         if position == 0:
-            df = calculate_rsi(df, period=14)
-            message = await open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+            if trend == 'uptrend':
+                message = await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+            elif trend == 'downtrend':
+                message = await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr)
+       
             if message:
                 print(message)
                 await send_telegram_message(message)
-
-        print(f"Sleeping for 60 seconds...\n")
-        await asyncio.sleep(60)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")

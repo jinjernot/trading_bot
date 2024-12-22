@@ -14,11 +14,11 @@ async def close_position_long(symbol, position, roi, df, stoch_k, resistance):
 - ✅ *Successful*
 """
         await cancel_open_orders(symbol)
-    elif roi <= -10:
-        close_position(symbol, SIDE_SELL, abs(position), "ROI <= -10%")
+    elif roi <= -25:
+        close_position(symbol, SIDE_SELL, abs(position), "ROI <= -25%")
         message = f"""
 🟢 *Long Position Closed* for *{symbol}* ({nice_interval}):
-- *Reason*: ROI <= -10%
+- *Reason*: ROI <= -25%
 - *ROI*: {roi:.2f}%
 - ❌ *Fail*
 """
@@ -59,11 +59,11 @@ async def close_position_short(symbol, position, roi, df, stoch_k, support):
 - ✅ *Successful*
 """
         await cancel_open_orders(symbol)
-    elif roi <= -10:
-        close_position(symbol, SIDE_BUY, abs(position), "ROI <= -10%")
+    elif roi <= -25:
+        close_position(symbol, SIDE_BUY, abs(position), "ROI <= -25%")
         message = f"""
 🔴 *Short Position Closed* for *{symbol}* ({nice_interval}):
-- *Reason*: ROI <= -10%
+- *Reason*: ROI <= -25%
 - *ROI*: {roi:.2f}%
 - ❌ *Fail*
 """

@@ -12,7 +12,7 @@ async def send_telegram_message(message, parse_mode="Markdown"):
             await bot.send_message(
                 chat_id=CHAT_ID,
                 text=message,
-                parse_mode=parse_mode  # Add the parse_mode argument here
+                parse_mode=parse_mode
             )
             await asyncio.sleep(0.5)
         except Exception as e:

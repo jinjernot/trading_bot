@@ -51,7 +51,7 @@ async def process_symbol(symbol):
         print(f"--- End Iteration {symbol} ({nice_interval}) ---\n")
         
         # Detect a channel
-        detect_channel_with_plot(df,symbol)
+        detect_parallel_channel(df,symbol)
 
         # Close positions
         if position > 0:

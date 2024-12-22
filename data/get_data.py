@@ -2,6 +2,10 @@ from config.secrets import API_KEY, API_SECRET
 import pandas as pd
 from binance.client import Client
 from config.settings import *
+import numpy as np
+from numpy import polyfit
+import matplotlib.pyplot as plt
+
 
 client = Client(API_KEY, API_SECRET)
 
@@ -68,12 +72,12 @@ def round_price(symbol, price):
     for filt in symbol_info['filters']:
         if filt['filterType'] == 'PRICE_FILTER':
             tick_size = float(filt['tickSize'])
-            price = round(price - (price % tick_size), 8)  # Align price with tick size
+            price = round(price - (price % tick_size), 8)
             return price
     return price
 
 # Get candles
-def fetch_klines(symbol, interval, lookback='150'):
+def fetch_klines(symbol, interval, lookback='50'):
     print(f"Fetching candles for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
@@ -91,33 +95,79 @@ def fetch_klines(symbol, interval, lookback='150'):
     # Return the DataFrame along with support and resistance levels
     return df, support, resistance 
 
-# Function to calculate support and resistance levels
-def calculate_support_resistance(df):
-    support = df['low'].min()
-    resistance = df['high'].max()
-    return support, resistance
-
 # Get trend
-def detect_trend(df):
+def detect_trend(df, window=5):
     trend = 'sideways'
     
-    # Loop through the DataFrame starting from the second index
-    for i in range(2, len(df)):
-        current_high = df['high'].iloc[i]
-        previous_high = df['high'].iloc[i-1]
-        current_low = df['low'].iloc[i]
-        previous_low = df['low'].iloc[i-1]
-        
-        # Check if we have a higher high and higher low (uptrend)
-        if current_high > previous_high and current_low > previous_low:
-            trend = 'uptrend'
-        
-        # Check if we have a lower high and lower low (downtrend)
-        elif current_high < previous_high and current_low < previous_low:
-            trend = 'downtrend'
-        
-        # If neither higher highs and higher lows nor lower highs and lower lows are found
-        elif trend == 'sideways':  # Maintain sideways if no clear trend is identified
-            trend = 'sideways'
+    # Calculate the slope of the last 'window' periods' closing prices
+    df['price_change'] = df['close'].diff()
+    avg_price_change = df['price_change'].rolling(window=window).mean().iloc[-1]
+    
+    if avg_price_change > 0:
+        trend = 'uptrend'
+    elif avg_price_change < 0:
+        trend = 'downtrend'
+    else:
+        trend = 'sideways'
 
     return trend
+
+def detect_local_extrema(df):
+    # Find local maxima (peaks) and local minima (valleys)
+    peaks = (df['high'].shift(1) < df['high']) & (df['high'].shift(-1) < df['high'])
+    valleys = (df['low'].shift(1) > df['low']) & (df['low'].shift(-1) > df['low'])
+
+    # Extract the indices of peaks and valleys
+    peak_indices = df.index[peaks]
+    valley_indices = df.index[valleys]
+
+    return peak_indices, valley_indices
+
+def fit_trend_line(df, indices, price_column):
+    x = indices  # x values are the time indices
+    y = df[price_column].iloc[indices]  # y values are the high/low prices at the peak or valley
+    slope, intercept = polyfit(x, y, 1)  # Fit a line: y = mx + b
+    
+    return slope, intercept
+
+def detect_channel_with_plot(df, symbol, threshold=0.001):  # Add threshold as a parameter
+    # Get local peaks and valleys
+    peak_indices, valley_indices = detect_local_extrema(df)
+
+    if len(peak_indices) < 2 or len(valley_indices) < 2:
+        print("Not enough peaks or valleys to form a channel.")
+        return None, None
+
+    # Fit trend lines for peaks (resistance) and valleys (support) using outer bounds
+    resistance_slope, resistance_intercept = fit_trend_line(df, peak_indices, 'high')
+    support_slope, support_intercept = fit_trend_line(df, valley_indices, 'low')
+
+    # Check if the slopes are close (within a certain threshold)
+    if abs(resistance_slope - support_slope) <= threshold * 10: 
+        print("Detected a channel!")
+
+        # Plot the data
+        plt.figure(figsize=(12, 6))
+        plt.plot(df['timestamp'], df['close'], label='Close Price', color='blue')
+        
+        # Plot resistance line (outer bounds - high prices)
+        x_resistance = np.arange(len(df))
+        y_resistance = resistance_slope * x_resistance + resistance_intercept
+        plt.plot(df['timestamp'], y_resistance, label='Resistance', color='red', linestyle='--')
+        
+        # Plot support line (outer bounds - low prices)
+        x_support = np.arange(len(df))
+        y_support = support_slope * x_support + support_intercept
+        plt.plot(df['timestamp'], y_support, label='Support', color='green', linestyle='--')
+        
+        plt.legend()
+        plt.title(f"{symbol}")
+        plt.xlabel("Timestamp")
+        plt.ylabel("Price")
+        plt.grid()
+        plt.show()
+
+        return resistance_slope, support_slope
+    else:
+        print("No channel detected.")
+        return None, None

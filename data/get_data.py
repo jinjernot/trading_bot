@@ -77,7 +77,7 @@ def round_price(symbol, price):
     return price
 
 # Get candles
-def fetch_klines(symbol, interval, lookback='50'):
+def fetch_klines(symbol, interval, lookback='60'):
     print(f"Fetching candles for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
@@ -96,19 +96,25 @@ def fetch_klines(symbol, interval, lookback='50'):
     return df, support, resistance 
 
 # Get trend
-def detect_trend(df, window=5):
+def detect_trend(df):
     trend = 'sideways'
     
-    # Calculate the slope of the last 'window' periods' closing prices
-    df['price_change'] = df['close'].diff()
-    avg_price_change = df['price_change'].rolling(window=window).mean().iloc[-1]
-    
-    if avg_price_change > 0:
-        trend = 'uptrend'
-    elif avg_price_change < 0:
-        trend = 'downtrend'
-    else:
-        trend = 'sideways'
+    # Use 'close' prices instead of 'high' and 'low'
+    for i in range(2, len(df)):
+        current_close = df['close'].iloc[i]
+        previous_close = df['close'].iloc[i-1]
+        
+        # Check if we have a higher close (uptrend)
+        if current_close > previous_close:
+            trend = 'uptrend'
+        
+        # Check if we have a lower close (downtrend)
+        elif current_close < previous_close:
+            trend = 'downtrend'
+        
+        # If neither higher close nor lower close is found
+        elif trend == 'sideways':  # Maintain sideways if no clear trend is identified
+            trend = 'sideways'
 
     return trend
 
@@ -130,7 +136,7 @@ def fit_trend_line(df, indices, price_column):
     
     return slope, intercept
 
-def detect_channel_with_plot(df, symbol, threshold=0.001):  # Add threshold as a parameter
+def detect_channel_with_plot(df, symbol, threshold=0.001):
     # Get local peaks and valleys
     peak_indices, valley_indices = detect_local_extrema(df)
 
@@ -159,7 +165,12 @@ def detect_channel_with_plot(df, symbol, threshold=0.001):  # Add threshold as a
         x_support = np.arange(len(df))
         y_support = support_slope * x_support + support_intercept
         plt.plot(df['timestamp'], y_support, label='Support', color='green', linestyle='--')
-        
+
+        # Plot trend direction
+        trend = detect_trend(df)
+        trend_color = 'orange' if trend == 'uptrend' else 'purple' if trend == 'downtrend' else 'gray'
+        plt.plot(df['timestamp'], df['close'], label=f'Trend: {trend}', color=trend_color, alpha=0.5)
+
         plt.legend()
         plt.title(f"{symbol}")
         plt.xlabel("Timestamp")

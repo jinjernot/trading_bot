@@ -51,7 +51,7 @@ async def process_symbol(symbol):
         print(f"--- End Iteration {symbol} ({nice_interval}) ---\n")
         
         # Detect a channel
-        detect_parallel_channel(df,symbol)
+        await detect_parallel_channel(df,symbol)
 
         # Close positions
         if position > 0:
@@ -60,11 +60,13 @@ async def process_symbol(symbol):
             await close_position_short(symbol, position, roi, df, stoch_k, support)
 
         # Open new positions
-        #if position == 0:
-        #    if trend == 'uptrend':
-        #        await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
-        #    elif trend == 'downtrend':
-        #        await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
+        if position == 0:
+            if trend == 'uptrend':
+                print(" ------ LONG POSITION ------")
+                #await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
+            elif trend == 'downtrend':
+                print(" ------ SHORT POSITION ------")
+                #await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
                 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")

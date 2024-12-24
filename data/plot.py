@@ -39,7 +39,7 @@ async def plot_channel(df,symbol,resistance_slope,resistance_intercept,support_s
     
     plt.plot(df['timestamp'], df['close'], label=f'Trend: {trend}', color=trend_color, alpha=0.5)
     plt.legend()
-    plt.title(f"{symbol} Parallel Channel with Extended Trend Lines")
+    plt.title(f"{symbol}")
     plt.xlabel("Timestamp")
     plt.ylabel("Price")
     plt.grid()

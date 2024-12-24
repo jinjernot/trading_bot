@@ -96,30 +96,56 @@ def fetch_klines(symbol, interval, lookback='100'):
     # Return the DataFrame along with support and resistance levels
     return df, support, resistance 
 
-def detect_trend(df, window=2):
-    trend = 'sideways'  # Default to sideways trend
-    
-    for i in range(window, len(df)):  # Start from the `window` index (since we need previous `window` data)
+def detect_trend(df, window=4, confirm=2):
+    # Check if the DataFrame is too small
+    if len(df) < window:
+        return 'sideways'
+
+    # Initializations
+    trend = 'sideways'
+    uptrend_count = 0
+    downtrend_count = 0
+
+    # Calculate overall trend from start to end prices
+    start_price = df['close'].iloc[0]
+    end_price = df['close'].iloc[-1]
+    overall_trend = 'uptrend' if end_price > start_price else 'downtrend' if end_price < start_price else 'sideways'
+
+    # Loop to detect trends using rolling highs and lows
+    for i in range(window, len(df)):
         current_high = df['high'].iloc[i]
         current_low = df['low'].iloc[i]
-        
-        # Define the previous `window` number of highs and lows
         high_window = df['high'].iloc[i-window:i]
         low_window = df['low'].iloc[i-window:i]
-        
-        # Check for higher high (uptrend)
-        if current_high == high_window.max():
+
+        # Check for higher high
+        if current_high >= high_window.max():
+            uptrend_count += 1
+            downtrend_count = 0
+        # Check for lower low
+        elif current_low <= low_window.min():
+            downtrend_count += 1
+            uptrend_count = 0
+        # Reset counts if no clear trend
+        else:
+            uptrend_count = 0
+            downtrend_count = 0
+
+        # Confirm trend based on counts
+        if uptrend_count >= confirm:
             trend = 'uptrend'
-        
-        # Check for lower low (downtrend)
-        elif current_low == low_window.min():
+        elif downtrend_count >= confirm:
             trend = 'downtrend'
-        
-        # If neither higher high nor lower low, trend remains sideways
-        elif trend == 'sideways':  # Maintain sideways if no clear trend is identified
+        else:
             trend = 'sideways'
 
-    return trend
+    # Combine overall trend with rolling trend
+    if overall_trend != 'sideways' and trend == 'sideways':
+        return overall_trend
+    elif overall_trend == trend:
+        return trend
+    else:
+        return 'sideways'
 
 # Function to detect local peaks (highs) and valleys (lows)
 def detect_local_extrema(df):

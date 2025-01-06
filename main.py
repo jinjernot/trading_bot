@@ -10,6 +10,10 @@ from config.settings import *
 
 import asyncio
 
+def calculate_volatility(df):
+    # Volatility calculated as standard deviation of close prices
+    return df['close'].pct_change().std()
+
 async def process_symbol(symbol):
     print(f"Setting leverage for {symbol} to {leverage}")
     
@@ -25,6 +29,15 @@ async def process_symbol(symbol):
         print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
         # Get Candles
         df, support, resistance  = fetch_klines(symbol, interval)
+
+        # Calculate Volatility
+        volatility = calculate_volatility(df) * 100
+        print(f"Volatility for {symbol}: {volatility:.2f}%")
+
+        # Only continue processing if price movement is at least 10%
+        if volatility < 10:
+            print(f"Skipping {symbol} due to low volatility.")
+            return
 
         # Calculate Stochastic
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)

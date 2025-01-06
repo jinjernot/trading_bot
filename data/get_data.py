@@ -26,6 +26,10 @@ def get_usdt_balance():
             return float(asset['balance'])
     return 0.0
 
+def calculate_volatility(df):
+    # Volatility calculated as standard deviation of close prices
+    return df['close'].pct_change().std()
+
 # Get Position
 def get_position(symbol):
     try:

@@ -7,6 +7,7 @@ from data.indicators import *
 
 from src.telegram_bot import *
 from config.settings import *
+from config.symbols import *
 
 import asyncio
 

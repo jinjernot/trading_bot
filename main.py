@@ -13,12 +13,9 @@ import asyncio
 
 
 async def process_symbol(symbol):
-    print(f"Setting leverage for {symbol} to {leverage}")
     
     try:
-        client.futures_change_leverage(symbol=symbol, leverage=leverage)
-        print(f"Leverage set successfully for {symbol}.")
-        
+        client.futures_change_leverage(symbol=symbol, leverage=leverage)     
     except Exception as e:
         print(f"Error setting leverage for {symbol}: {e}")
         return
@@ -26,6 +23,7 @@ async def process_symbol(symbol):
     try:
         print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
         
+        print(f"\n--- Check Daily ---")
         # **Fetch Intraday Candles for Volatility Check**
         df_intraday, _, _ = fetch_klines(symbol, intraday_interval)
         
@@ -34,10 +32,11 @@ async def process_symbol(symbol):
         print(f"Intraday Volatility for {symbol}: {volatility:.2f}%")
 
         # Only continue processing if price movement is at least 10%
-        if volatility < 10:
-            print(f"Skipping {symbol} due to low intraday volatility.")
+        if volatility < 5:
+            print(f"--- Skipping {symbol} due to low intraday volatility ---")
             return
-
+        
+        print(f"\n")
         # **Fetch Standard Candles for the Rest of the Calculations**
         df, support, resistance  = fetch_klines(symbol, interval)
 
@@ -66,7 +65,7 @@ async def process_symbol(symbol):
         print(f"--- End Iteration {symbol} ({nice_interval}) ---\n")
         
         # Detect a channel
-        await detect_parallel_channel(df,symbol)
+        #await detect_parallel_channel(df,symbol)
 
         # Close positions
         if position > 0:
@@ -77,12 +76,9 @@ async def process_symbol(symbol):
         # Open new positions
         if position == 0:
             if trend == 'uptrend':
-                print(" ------ LONG POSITION ------")
-                #await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
+                await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
             elif trend == 'downtrend':
-                print(" ------ SHORT POSITION ------")
-                #await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)
-                
+                await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance)     
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(60)

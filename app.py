@@ -5,7 +5,8 @@ from flask import Flask, render_template, jsonify
 from binance.client import Client
 
 # --- Local Imports from your project ---
-from data.get_data import get_usdt_balance, fetch_klines, get_position, detect_trend, get_funding_rate
+# Note: We import functions directly as the bot logic is now in this file.
+from data.get_data import get_usdt_balance, fetch_klines, get_position, detect_trend, get_funding_rate, get_symbol_info
 from data.indicators import add_price_sma, add_volume_sma, calculate_stoch, calculate_rsi, calculate_atr, PERIOD, K, D
 from analysis import analyze_trades
 from config.secrets import API_KEY, API_SECRET
@@ -14,7 +15,6 @@ from config.symbols import symbols
 from src.state_manager import bot_state
 from src.close_position import close_position_long, close_position_short
 from src.open_position_copy import open_position_long, open_position_short
-
 
 app = Flask(__name__)
 
@@ -27,7 +27,7 @@ CACHE = {
     'account_balance': {'usdt_balance': 0},
     'last_fetch_timestamp': 0
 }
-CACHE_LIFESPAN = 20
+CACHE_LIFESPAN = 20  # How long the cache is considered fresh, in seconds.
 cache_lock = Lock()
 
 # --- Trading Bot State and Control ---
@@ -44,20 +44,19 @@ def refresh_cache():
     print("CACHE STALE. Refreshing data from Binance API...")
     try:
         all_positions = client.futures_position_information()
-        all_tickers = client.futures_ticker()
-        prices = {ticker['symbol']: float(ticker['markPrice']) for ticker in all_tickers if 'markPrice' in ticker}
         
         current_active_trades = []
         for position in all_positions:
-            if float(position['positionAmt']) != 0:
+            position_amt = float(position.get('positionAmt', 0))
+
+            if position_amt != 0:
                 symbol = position['symbol']
-                entry_price = float(position['entryPrice'])
-                current_price = prices.get(symbol, entry_price)
-                position_amt = float(position['positionAmt'])
-                unrealized_profit = (current_price - entry_price) * position_amt
+                entry_price = float(position.get('entryPrice', 0))
+                unrealized_profit = float(position.get('unrealizedProfit', 0.0))
                 position_leverage = int(position.get('leverage', leverage))
-                margin_used = (abs(position_amt) * entry_price) / position_leverage
+                margin_used = (abs(position_amt) * entry_price) / position_leverage if position_leverage != 0 else 0
                 roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
+                
                 current_active_trades.append({
                     'symbol': symbol, 'position_amt': position_amt, 'roi': roi,
                     'unrealized_profit': unrealized_profit, 'margin_used': margin_used
@@ -111,6 +110,9 @@ async def process_symbol(symbol):
 
 async def trading_bot_main_loop():
     """The main loop for the trading bot."""
+    # Pre-fetch exchange info once to avoid rate limits inside the loop
+    get_symbol_info('BTCUSDT') # This call will cache the info for all symbols
+    
     while BOT_STATE['is_running']:
         print("\n--- Starting new trading cycle ---")
         for symbol in symbols:
@@ -150,7 +152,7 @@ def get_trade_analysis():
         print(f"Error in /api/trade-analysis: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
-# --- New Bot Control API Endpoints ---
+# --- Bot Control API Endpoints ---
 
 @app.route('/api/bot/start', methods=['POST'])
 def start_bot():
@@ -181,4 +183,4 @@ def bot_status():
 if __name__ == "__main__":
     # Now, running this file starts only the web server.
     # The trading bot must be started via the API.
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

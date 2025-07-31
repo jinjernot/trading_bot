@@ -19,28 +19,25 @@ async def process_symbol(symbol):
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
         print(f"Leverage for {symbol} set to {leverage}.")
     except Exception as e:
-        # Check if the error is due to invalid leverage
         if 'APIError(code=-4028)' in str(e):
             print(f"Leverage {leverage} is not valid for {symbol}. Trying to set leverage to 10.")
             try:
-                # Try setting a lower, safer leverage
                 client.futures_change_leverage(symbol=symbol, leverage=10)
                 print(f"Successfully set leverage for {symbol} to 10.")
             except Exception as e2:
-                # If setting the lower leverage also fails, skip the symbol
                 print(f"Failed to set leverage to 10 for {symbol}: {e2}")
                 return
         else:
-            # For any other errors, print the error and skip the symbol
             print(f"An unexpected error occurred while setting leverage for {symbol}: {e}")
             return
 
     try:
         print(f"\n--- New Iteration for {symbol} ({nice_interval}) ---")
-                
+        
         # **Fetch Standard Candles for the Rest of the Calculations**
         df, support, resistance  = fetch_klines(symbol, interval)
-        
+
+        # Add technical indicators to the DataFrame
         df = add_price_sma(df, period=50)
         df = add_volume_sma(df, period=20)
 
@@ -53,7 +50,7 @@ async def process_symbol(symbol):
         # Calculate RSI
         df = calculate_rsi(df, period=14)
         print(f"RSI for {symbol}: {df['rsi'].iloc[-3:].values}")
-        
+
         # Calculate ATR
         df = calculate_atr(df)
         atr_value = df['atr'].iloc[-1]
@@ -71,6 +68,11 @@ async def process_symbol(symbol):
         # Get trend
         trend = detect_trend(df)
         print(f"Market trend for {symbol}: {trend}")
+        
+        # Get Funding Rate
+        funding_rate = get_funding_rate(symbol)
+        print(f"Funding Rate for {symbol}: {funding_rate:.4%}")
+
         print(f"--- End Iteration {symbol} ({nice_interval}) ---\n")
         
         # Detect a channel
@@ -83,14 +85,11 @@ async def process_symbol(symbol):
             await close_position_short(symbol, position, roi, df, stoch_k, support)
 
         # Open new positions
-    
         if position == 0:
             if trend == 'uptrend':
-                # Pass atr_value to the function
-                await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value)
+                await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)
             elif trend == 'downtrend':
-                # Pass atr_value to the function
-                await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value) 
+                await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)     
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(60)

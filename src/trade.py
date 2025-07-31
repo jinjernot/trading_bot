@@ -42,7 +42,7 @@ async def cancel_open_orders(symbol):
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None):
     
     RISK_PER_TRADE = 0.02  # Risking 2% of the account per trade.
-    RISK_REWARD_RATIO = 1.5 # Aiming for 1.5x our risk
+    RISK_REWARD_RATIO = 2 # Aiming for 1.5x our risk
 
     try:
         set_margin_type(symbol, margin_type='ISOLATED')

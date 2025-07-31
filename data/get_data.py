@@ -190,3 +190,15 @@ async def detect_parallel_channel(df, symbol):
 
 
     return resistance_slope, resistance_intercept, support_slope, support_intercept
+
+def get_funding_rate(symbol):
+    try:
+        # Fetch the most recent funding rate history (limit=1 gets the latest)
+        funding_rate_history = client.futures_funding_rate(symbol=symbol, limit=1)
+        if funding_rate_history:
+            # The rate is a string, convert it to a float
+            return float(funding_rate_history[0]['fundingRate'])
+        return 0.0
+    except Exception as e:
+        print(f"Error getting funding rate for {symbol}: {e}")
+        return 0.0

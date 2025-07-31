@@ -4,6 +4,7 @@ from data.indicators import *
 from src.telegram_bot import send_telegram_message
 from config.settings import *
 
+
 async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value):
     """
     Opens a long position only if multiple conditions (Stochastic, Price SMA, RSI, Volume) are met.
@@ -37,21 +38,11 @@ async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support
     if stochastic_signal and price_above_sma and rsi_is_bullish and volume_is_strong:
         print(f"Placing order for {symbol} due to strong bullish confluence.")
         
-        # The Telegram message part is commented out as requested
-        # message = f"""
-# 🟢 *New Buy Order Placed* for *{symbol}* ({nice_interval}):
-# - *Reason*: Bullish entry with Stochastic, SMA, RSI, and Volume confirmation.
-# - *Support*: {support:.2f}  |  *Resistance*: {resistance:.2f}
-# - *Stochastic K*: {stoch_k.iloc[-1]:.2f}  |  *Stochastic D*: {stoch_d.iloc[-1]:.2f}
-# - *Current Price*: {last_close:.2f}
-# """
-        # await send_telegram_message(message, parse_mode="Markdown")
-        
         place_order(
-            symbol, 
-            SIDE_BUY, 
-            usdt_balance, 
-            "Bullish confluence entry", 
+            symbol=symbol, 
+            side=SIDE_BUY, 
+            usdt_balance=usdt_balance, 
+            reason_to_open="Bullish confluence entry", 
             stop_loss_atr_multiplier=1.5, 
             atr_value=atr_value
         )
@@ -72,21 +63,11 @@ async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, suppor
     ):
         print(f"Placing order for {symbol} due to bearish stochastic.")
         
-        # The Telegram message part is commented out as requested
-        # message = f"""
-# 🔴 *New Sell Order Placed* for *{symbol}* ({nice_interval}):
-# - *Reason*: Bearish entry with stochastic leaving overbought
-# - *Support*: {support:.2f}  |  *Resistance*: {resistance:.2f}
-# - *Stochastic K*: {stoch_k.iloc[-1]:.2f}  |  *Stochastic D*: {stoch_d.iloc[-1]:.2f}
-# - *Current Price*: {df['close'].iloc[-1]:.2f}
-# """
-        # await send_telegram_message(message, parse_mode="Markdown")
-        
         place_order(
-            symbol, 
-            SIDE_SELL, 
-            usdt_balance, 
-            "Bearish entry with stochastic leaving overbought", 
+            symbol=symbol, 
+            side=SIDE_SELL, 
+            usdt_balance=usdt_balance, 
+            reason_to_open="Bearish entry with stochastic leaving overbought", 
             stop_loss_atr_multiplier=1.5, 
             atr_value=atr_value
         )

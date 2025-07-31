@@ -1,4 +1,3 @@
-
 import os
 import json
 import pandas as pd
@@ -26,147 +25,139 @@ def log_trade(data):
 
     with open(LOG_FILE, 'w') as f:
         json.dump(logs, f, indent=4)
-        
+
 
 async def cancel_open_orders(symbol):
     try:
         open_orders = client.futures_get_open_orders(symbol=symbol)
         for order in open_orders:
-            if order['type'] == 'FUTURE_ORDER_TYPE_STOP' or order['type'] == 'STOP':
+            # Check for both Stop and Take Profit order types
+            if order['type'] in ['STOP', 'TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP_MARKET']:
                 client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
-                print(f"Canceled stop-loss order for {symbol}, Order ID: {order['orderId']}")
+                print(f"Canceled open order for {symbol}, Type: {order['type']}, ID: {order['orderId']}")
     except Exception as e:
         print(f"Error canceling open orders for {symbol}: {e}")
 
 
 def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None):
-    trade_amount = usdt_balance * 1
-    print(f"USDT balance for trade: {trade_amount}")
+    
+    RISK_PER_TRADE = 0.02  # Risking 2% of the account per trade.
+    RISK_REWARD_RATIO = 1.5 # Aiming for 1.5x our risk
 
     try:
         set_margin_type(symbol, margin_type='ISOLATED')
 
         price = get_market_price(symbol)
-        if price is None:
-            return
+        if price is None: return
         
         limit_price = round_price(symbol, price)
-        quantity = trade_amount / limit_price
-        quantity = round_quantity(symbol, quantity)
 
-        notional = limit_price * quantity
-        if notional < 100:
-            print(f"Notional value {notional} is too small, adjusting quantity to meet minimum notional.")
-            quantity = 100 / limit_price
-            quantity = round_quantity(symbol, quantity)
-
-        if quantity <= 0:
-            print("Calculated quantity is too small to trade.")
+        # --- POSITION SIZING AND TP/SL CALCULATION ---
+        if stop_loss_atr_multiplier is None or atr_value is None:
+            print("Cannot calculate position size without ATR and multiplier.")
             return
 
-        print(f"Placing limit order: {side} {quantity} {symbol} at {limit_price}")
-        order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type=ORDER_TYPE_LIMIT,
-            quantity=quantity,
-            price=limit_price,
-            timeInForce=TIME_IN_FORCE_GTC,
-            reduceOnly=reduce_only
-        )
-        print(f"Order placed successfully: {order}")
+        # 1. Calculate Stop-Loss Price and Distance
+        if side == SIDE_BUY:
+            stop_loss_price = limit_price - (atr_value * stop_loss_atr_multiplier)
+        else: # SIDE_SELL
+            stop_loss_price = limit_price + (atr_value * stop_loss_atr_multiplier)
+        stop_loss_price = round_price(symbol, stop_loss_price)
+        
+        stop_loss_distance = abs(limit_price - stop_loss_price)
+        if stop_loss_distance == 0:
+            print("Stop loss distance is zero, cannot calculate position size.")
+            return
 
+        # 2. Calculate Take-Profit Price
+        if side == SIDE_BUY:
+            take_profit_price = limit_price + (stop_loss_distance * RISK_REWARD_RATIO)
+        else: # SIDE_SELL
+            take_profit_price = limit_price - (stop_loss_distance * RISK_REWARD_RATIO)
+        take_profit_price = round_price(symbol, take_profit_price)
+
+        # 3. Calculate Position Size
+        stop_loss_distance_percent = stop_loss_distance / limit_price
+        trade_amount_usdt = (usdt_balance * RISK_PER_TRADE) / stop_loss_distance_percent
+        quantity = round_quantity(symbol, trade_amount_usdt / limit_price)
+        # --- END OF CALCULATIONS ---
+
+        print(f"--- New Order ---")
+        print(f"Risk per trade: {RISK_PER_TRADE*100}%, R:R Ratio: {RISK_REWARD_RATIO}")
+        print(f"Entry: ${limit_price:.4f}, Qty: {quantity}")
+        print(f"Take Profit: ${take_profit_price:.4f}")
+        print(f"Stop Loss: ${stop_loss_price:.4f}")
+
+        if quantity <= 0 or round(limit_price * quantity, 2) < 5: # Binance minimum notional value is ~$5
+            print("Calculated quantity or notional value is too small to trade.")
+            return
+
+        # --- PLACING ORDERS ---
+        # 1. Entry Order
+        order = client.futures_create_order(
+            symbol=symbol, side=side, type=ORDER_TYPE_LIMIT, quantity=quantity,
+            price=limit_price, timeInForce=TIME_IN_FORCE_GTC, reduceOnly=reduce_only
+        )
+        print(f"Entry order placed successfully: {order['orderId']}")
         log_trade({
-            "symbol": symbol,
-            "USDT_balance_before_trade": usdt_balance,
-            "trade_side": side,
-            "trade_quantity": quantity,
-            "trade_price": limit_price,
-            "reason_to_open": reason_to_open,
-            "reduce_only": reduce_only,
-            "timestamp": pd.Timestamp.now().isoformat()
+            "symbol": symbol, "USDT_balance": usdt_balance, "side": side, 
+            "quantity": quantity, "price": limit_price, "reason": reason_to_open
         })
 
-        # Place stop-loss order if an ATR multiplier is provided
-        if stop_loss_atr_multiplier is not None and atr_value is not None:
-            # Calculate stop-loss price using ATR
-            if side == SIDE_BUY:  # Long position
-                stop_loss_price = limit_price - (atr_value * stop_loss_atr_multiplier)
-            elif side == SIDE_SELL:  # Short position
-                stop_loss_price = limit_price + (atr_value * stop_loss_atr_multiplier)
-            
-            stop_loss_price = round_price(symbol, stop_loss_price)
-            stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+        # 2. Stop-Loss Order
+        stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+        sl_order = client.futures_create_order(
+            symbol=symbol, side=stop_loss_side, type='STOP_MARKET',
+            stopPrice=stop_loss_price, closePosition=True, timeInForce='GTC'
+        )
+        print(f"Stop-Loss order placed successfully: {sl_order['orderId']}")
 
-            print(f"Calculated ATR-based stop-loss price: {stop_loss_price}")
+        # 3. Take-Profit Order
+        tp_order = client.futures_create_order(
+            symbol=symbol, side=stop_loss_side, type='TAKE_PROFIT_MARKET',
+            stopPrice=take_profit_price, closePosition=True, timeInForce='GTC'
+        )
+        print(f"Take-Profit order placed successfully: {tp_order['orderId']}")
 
-            if stop_loss_price <= 0 or quantity <= 0:
-                print(f"Invalid stop-loss price or quantity.")
-                return
-
-            try:
-                stop_loss_order = client.futures_create_order(
-                    symbol=symbol,
-                    side=stop_loss_side,
-                    type=FUTURE_ORDER_TYPE_STOP,
-                    stopPrice=stop_loss_price,
-                    price=stop_loss_price,
-                    quantity=quantity,
-                    timeInForce=TIME_IN_FORCE_GTC
-                )
-                print(f"Stop-loss order placed successfully: {stop_loss_order}")
-            except Exception as e:
-                print(f"Error placing stop-loss order: {e}")
     except Exception as e:
         print(f"Error placing order: {e}")
+        
 
 def close_position(symbol, side, quantity, reason_to_close):
     print(f"Closing position: {side} {quantity} {symbol}. Reason: {reason_to_close}")
     try:
-        # Ensure margin type is isolated
         set_margin_type(symbol, margin_type='ISOLATED')
 
         price = get_market_price(symbol)
         if price is None:
             return
 
-        # Adjust the price slightly for limit orders
         if side == SIDE_BUY:
             limit_price = price * 1.01
         elif side == SIDE_SELL:
             limit_price = price * 0.99
 
-        # Align limit price with the tick size
         limit_price = round_price(symbol, limit_price)
 
         order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type=ORDER_TYPE_LIMIT,
-            quantity=quantity,
-            price=limit_price,
-            timeInForce=TIME_IN_FORCE_GTC,
-            reduceOnly=True
+            symbol=symbol, side=side, type=ORDER_TYPE_LIMIT, quantity=quantity,
+            price=limit_price, timeInForce=TIME_IN_FORCE_GTC, reduceOnly=True
         )
         print(f"Position closed successfully: {order}")
 
-        # Fetch updated USDT balance
         new_usdt_balance = get_usdt_balance()
 
-        # Log trade details with symbol
         log_trade({
-            "symbol": symbol,  # Added symbol
-            "new_USDT_balance": new_usdt_balance,
-            "closing_side": side,
-            "closing_quantity": quantity,
-            "closing_price": limit_price,
-            "reason_to_close": reason_to_close,
+            "symbol": symbol, "new_USDT_balance": new_usdt_balance,
+            "closing_side": side, "closing_quantity": quantity,
+            "closing_price": limit_price, "reason_to_close": reason_to_close,
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
     except Exception as e:
         print(f"Error closing position: {e}")      
         
+
 def set_margin_type(symbol, margin_type='ISOLATED'):
     try:
         response = client.futures_change_margin_type(symbol=symbol, marginType=margin_type)

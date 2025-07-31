@@ -46,7 +46,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, resistance):
         await cancel_open_orders(symbol)
     else:
         return False
-    await send_telegram_message(message, parse_mode="Markdown")
+    #await send_telegram_message(message, parse_mode="Markdown")
     return True
 
 async def close_position_short(symbol, position, roi, df, stoch_k, support):
@@ -91,5 +91,5 @@ async def close_position_short(symbol, position, roi, df, stoch_k, support):
         await cancel_open_orders(symbol)
     else:
         return False
-    await send_telegram_message(message, parse_mode="Markdown")
+    #await send_telegram_message(message, parse_mode="Markdown")
     return True

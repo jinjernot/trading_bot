@@ -28,18 +28,6 @@ def log_trade(data):
         json.dump(logs, f, indent=4)
         
 
-def calculate_stop_loss(entry_price, position_side, stop_loss_percentage):
-    """
-    Calculate the stop-loss price based on the entry price and position side.
-    """
-    stop_loss_percentage /= 4
-    
-    if position_side == SIDE_BUY:  # Long position
-        return entry_price * (1 - stop_loss_percentage / 100)
-    elif position_side == SIDE_SELL:  # Short position
-        return entry_price * (1 + stop_loss_percentage / 100)
-    
-
 async def cancel_open_orders(symbol):
     try:
         open_orders = client.futures_get_open_orders(symbol=symbol)
@@ -51,7 +39,7 @@ async def cancel_open_orders(symbol):
         print(f"Error canceling open orders for {symbol}: {e}")
 
 
-def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_percentage=None):
+def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None):
     trade_amount = usdt_balance * 1
     print(f"USDT balance for trade: {trade_amount}")
 
@@ -61,18 +49,16 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         price = get_market_price(symbol)
         if price is None:
             return
-        # Adjust the price for limit order based on symbol precision
+        
         limit_price = round_price(symbol, price)
-
-        # Calculate the quantity to trade based on available balance
         quantity = trade_amount / limit_price
-        quantity = round_quantity(symbol, quantity)  # Use round_quantity to adjust to symbol's step size
+        quantity = round_quantity(symbol, quantity)
 
         notional = limit_price * quantity
         if notional < 100:
             print(f"Notional value {notional} is too small, adjusting quantity to meet minimum notional.")
             quantity = 100 / limit_price
-            quantity = round_quantity(symbol, quantity)  # Ensure the adjusted quantity meets step size
+            quantity = round_quantity(symbol, quantity)
 
         if quantity <= 0:
             print("Calculated quantity is too small to trade.")
@@ -90,9 +76,8 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         )
         print(f"Order placed successfully: {order}")
 
-        # Log trade details with symbol
         log_trade({
-            "symbol": symbol,  # Added symbol
+            "symbol": symbol,
             "USDT_balance_before_trade": usdt_balance,
             "trade_side": side,
             "trade_quantity": quantity,
@@ -102,30 +87,24 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
-        # Place stop-loss order if stop_loss_percentage is provided
-        if stop_loss_percentage is not None:
-            # Calculate stop-loss price
-            stop_loss_price = calculate_stop_loss(limit_price, side, stop_loss_percentage)
+        # Place stop-loss order if an ATR multiplier is provided
+        if stop_loss_atr_multiplier is not None and atr_value is not None:
+            # Calculate stop-loss price using ATR
+            if side == SIDE_BUY:  # Long position
+                stop_loss_price = limit_price - (atr_value * stop_loss_atr_multiplier)
+            elif side == SIDE_SELL:  # Short position
+                stop_loss_price = limit_price + (atr_value * stop_loss_atr_multiplier)
+            
             stop_loss_price = round_price(symbol, stop_loss_price)
-
-            # Ensure stop_loss_side is correctly set
             stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
 
-            # Log calculated stop-loss price
-            print(f"Calculated stop-loss price: {stop_loss_price} (Stop Price: {stop_loss_price})")
+            print(f"Calculated ATR-based stop-loss price: {stop_loss_price}")
 
-            # Check if stop loss price is within a valid range
-            if stop_loss_price <= 0:
-                print(f"Invalid stop-loss price: {stop_loss_price}")
-                return  # Exit if the price is invalid
-
-            # Ensure quantity is greater than zero
-            if quantity <= 0:
-                print("Invalid quantity for stop-loss order.")
-                return 
+            if stop_loss_price <= 0 or quantity <= 0:
+                print(f"Invalid stop-loss price or quantity.")
+                return
 
             try:
-                # Place stop-loss limit order
                 stop_loss_order = client.futures_create_order(
                     symbol=symbol,
                     side=stop_loss_side,

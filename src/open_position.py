@@ -23,7 +23,7 @@ async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_
                     f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                     f"RSI: {df['rsi'].iloc[-1]:.2f}, Price: {df['close'].iloc[-1]:.2f}"
                 )
-                await send_telegram_message(message)
+                #await send_telegram_message(message)
                 return True
             else:
                 return False
@@ -45,7 +45,7 @@ async def open_new_position(symbol, position, trend, df, stoch_k, stoch_d, usdt_
                     f"Stochastic K: {stoch_k.iloc[-1]:.2f}, Stochastic D: {stoch_d.iloc[-1]:.2f}\n"
                     f"RSI: {df['rsi'].iloc[-1]:.2f}, Price: {df['close'].iloc[-1]:.2f}"
                 )
-                await send_telegram_message(message)
+                #await send_telegram_message(message)
                 return True
             else:
                 return False

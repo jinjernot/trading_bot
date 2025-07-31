@@ -52,8 +52,21 @@ def refresh_cache():
             if position_amt != 0:
                 symbol = position['symbol']
                 entry_price = float(position.get('entryPrice', 0))
-                unrealized_profit = float(position.get('unrealizedProfit', 0.0))
                 position_leverage = int(position.get('leverage', leverage))
+                
+                # --- START: Real-time PNL Calculation ---
+                try:
+                    # Fetch the current mark price for the symbol
+                    mark_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
+                    
+                    # Calculate unrealized PNL manually
+                    unrealized_profit = (mark_price - entry_price) * position_amt
+                except Exception as e:
+                    print(f"Could not fetch mark price for {symbol}, falling back to API value. Error: {e}")
+                    # Fallback to the value from the API if the mark price can't be fetched
+                    unrealized_profit = float(position.get('unrealizedProfit', 0.0))
+                # --- END: Real-time PNL Calculation ---
+
                 margin_used = (abs(position_amt) * entry_price) / position_leverage if position_leverage != 0 else 0
                 roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
                 
@@ -69,8 +82,10 @@ def refresh_cache():
         print("Cache refreshed successfully.")
     except Exception as e:
         print(f"!!! CRITICAL: FAILED to refresh cache from Binance API: {e}")
+        # To prevent spamming the API on failure, we still update the timestamp, 
+        # but make the cache expire sooner.
         CACHE['last_fetch_timestamp'] = time.time() - CACHE_LIFESPAN + 5
-
+        
 @app.before_request
 def check_cache_freshness():
     """Runs before each request to check and refresh the cache if stale."""

@@ -6,7 +6,7 @@ from data.get_data import *
 from data.indicators import *
 
 from src.telegram_bot import *
-from config.settings import * # This now imports VERBOSE_LOGGING
+from config.settings import *
 from config.symbols import *
 from src.state_manager import bot_state
 
@@ -17,7 +17,6 @@ MAX_CONSECUTIVE_LOSSES = 10
 async def process_symbol(symbol):
     
     try:
-        # This initial leverage log is important, so we'll keep it
         print(f"Processing symbol: {symbol}...")
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
     except Exception as e:
@@ -33,7 +32,6 @@ async def process_symbol(symbol):
             return
 
     try:
-        # --- Data Fetching and Calculations ---
         df, support, resistance  = fetch_klines(symbol, interval)
         df = add_price_sma(df, period=50)
         df = add_volume_sma(df, period=20)
@@ -47,27 +45,19 @@ async def process_symbol(symbol):
         trend = detect_trend(df)
         funding_rate = get_funding_rate(symbol)
 
-        # --- Conditional Logging Block ---
         if VERBOSE_LOGGING:
             print(f"\n--- Verbose Log for {symbol} ({nice_interval}) ---")
             print(f"Stochastic K: {stoch_k.iloc[-3:].values}")
             print(f"Stochastic D: {stoch_d.iloc[-3:].values}")
             print(f"RSI: {df['rsi'].iloc[-3:].values}")
-            print(f"ATR: {atr_value:.4f}")
             print(f"Position: {position}, ROI: {roi:.2f}%")
-            print(f"Market trend: {trend}")
-            print(f"Funding Rate: {funding_rate:.4%}")
             print(f"--- End Log ---\n")
         
-        #await detect_parallel_channel(df,symbol)
-
-        # --- Position Management ---
         if position > 0:
             await close_position_long(symbol, position, roi, df, stoch_k, resistance)
         elif position < 0:
             await close_position_short(symbol, position, roi, df, stoch_k, support)
 
-        # --- Circuit Breaker ---
         if bot_state.consecutive_losses >= MAX_CONSECUTIVE_LOSSES and not bot_state.trading_paused:
             print(f"\n!!! CIRCUIT BREAKER TRIPPED: Pausing new trades due to {bot_state.consecutive_losses} consecutive losses. !!!\n")
             bot_state.trading_paused = True
@@ -75,7 +65,6 @@ async def process_symbol(symbol):
         if bot_state.trading_paused:
             return
 
-        # --- Open New Positions ---
         if position == 0:
             if trend == 'uptrend':
                 await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)
@@ -83,12 +72,19 @@ async def process_symbol(symbol):
                 await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)     
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
-        await asyncio.sleep(60)
+        # Add a small sleep here as well to prevent spamming on errors
+        await asyncio.sleep(1)
 
 async def main():
     while True:
+        print("\n--- Starting new trading cycle ---")
         tasks = [process_symbol(symbol) for symbol in symbols]
         await asyncio.gather(*tasks)
+        
+        # CRITICAL FIX: Wait for a period of time before checking all symbols again.
+        # 60 seconds is a reasonable starting point.
+        print("\n--- Trading cycle complete. Waiting for 60 seconds... ---")
+        await asyncio.sleep(60)
 
 if __name__ == "__main__":
     if VERBOSE_LOGGING:

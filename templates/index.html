@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <!-- Link to the external stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Chart.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Additional styles for the new bot control elements */
+        .bot-control-panel {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #6b7280; /* Gray for unknown */
+        }
+        .status-dot.running { background-color: #22c55e; } /* Green */
+        .status-dot.stopped { background-color: #ef4444; } /* Red */
+
+        .control-button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.375rem;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .control-button.start { background-color: #22c55e; }
+        .control-button.start:hover { background-color: #16a34a; }
+        .control-button.stop { background-color: #ef4444; }
+        .control-button.stop:hover { background-color: #dc2626; }
+        .control-button:disabled { background-color: #4b5563; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Trading Bot Dashboard</h1>
+            <div class="bot-control-panel">
+                <div class="status-indicator">
+                    <div id="status-dot" class="status-dot"></div>
+                    <span id="status-text">Checking...</span>
+                </div>
+                <button id="bot-control-btn" class="control-button" disabled>Wait...</button>
+            </div>
+            <div class="card">
+                <div class="stat-title">Account Balance</div>
+                <div id="balance-loader" class="loader loader-small"></div>
+                <div id="usdt-balance" class="stat-value text-white hidden"></div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Performance Stats Section -->
+            <div class="card">
+                <h2 class="font-bold" style="font-size: 1.5rem; margin-bottom: 1rem;">Performance Overview</h2>
+                <div id="analysis-loader" class="loader"></div>
+                <div id="analysis-content" class="hidden">
+                    <div id="analysis-error" class="hidden" style="text-align: center; padding: 2rem; color: #f59e0b;"></div>
+                    <div id="stats-grid" class="stats-grid">
+                        <!-- Stat cards here -->
+                    </div>
+                    <div class="chart-container">
+                        <h3 class="font-bold" style="font-size: 1.25rem; margin-bottom: 1rem;">Equity Curve</h3>
+                        <div class="card"><canvas id="equity-chart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Trades Section -->
+            <div class="card">
+                <h2 class="font-bold" style="font-size: 1.5rem; margin-bottom: 1rem;">Active Trades</h2>
+                <div id="trades-loader" class="loader"></div>
+                <div id="trades-table-container" class="table-container hidden">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th><th>Side</th><th>Amount</th><th>Unrealized PNL</th><th>ROI (%)</th><th>Margin Used</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades-tbody"></tbody>
+                    </table>
+                     <div id="no-trades-message" class="hidden" style="text-align: center; padding: 2rem;">No active trades found.</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const botControlButton = document.getElementById('bot-control-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        // (Other DOM elements are the same as before)
+        const tradesTbody = document.getElementById('trades-tbody');
+        const usdtBalanceEl = document.getElementById('usdt-balance');
+        const tradesLoader = document.getElementById('trades-loader');
+        const balanceLoader = document.getElementById('balance-loader');
+        const tradesTableContainer = document.getElementById('trades-table-container');
+        const noTradesMessage = document.getElementById('no-trades-message');
+        const analysisLoader = document.getElementById('analysis-loader');
+        const analysisContent = document.getElementById('analysis-content');
+        const analysisErrorEl = document.getElementById('analysis-error');
+        const statsGrid = document.getElementById('stats-grid');
+        let equityChart = null;
+
+        // --- Bot Control Functions ---
+        async function updateBotStatusUI(isRunning) {
+            if (isRunning) {
+                statusText.textContent = 'Running';
+                statusDot.className = 'status-dot running';
+                botControlButton.textContent = 'Stop Bot';
+                botControlButton.className = 'control-button stop';
+            } else {
+                statusText.textContent = 'Stopped';
+                statusDot.className = 'status-dot stopped';
+                botControlButton.textContent = 'Start Bot';
+                botControlButton.className = 'control-button start';
+            }
+            botControlButton.disabled = false;
+        }
+
+        async function getBotStatus() {
+            try {
+                const response = await fetch('/api/bot/status');
+                const data = await response.json();
+                updateBotStatusUI(data.is_running);
+            } catch (error) {
+                console.error('Failed to get bot status:', error);
+                statusText.textContent = 'Error';
+                botControlButton.disabled = true;
+            }
+        }
+
+        async function toggleBot() {
+            botControlButton.disabled = true;
+            botControlButton.textContent = 'Working...';
+            const isRunning = statusText.textContent === 'Running';
+            const endpoint = isRunning ? '/api/bot/stop' : '/api/bot/start';
+            
+            try {
+                const response = await fetch(endpoint, { method: 'POST' });
+                const data = await response.json();
+                console.log(data.message);
+            } catch (error) {
+                console.error('Failed to toggle bot state:', error);
+            } finally {
+                // Refresh status immediately after action
+                setTimeout(getBotStatus, 1000); 
+            }
+        }
+
+        // --- Data Fetching Functions (Unchanged) ---
+        async function fetchActiveTrades() { /* ... */ }
+        async function fetchBalance() { /* ... */ }
+        async function fetchAnalysisData() { /* ... */ }
+        function renderEquityChart(chartData) { /* ... */ }
+        
+        // (Pasting the unchanged data fetching functions for completeness)
+        async function fetchActiveTrades() {
+            try {
+                const response = await fetch('/api/active-trades');
+                if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                const trades = await response.json();
+                tradesLoader.classList.add('hidden');
+                tradesTableContainer.classList.remove('hidden');
+                tradesTbody.innerHTML = '';
+                if (trades.length === 0) {
+                    noTradesMessage.classList.remove('hidden');
+                } else {
+                    noTradesMessage.classList.add('hidden');
+                    trades.forEach(trade => {
+                        const row = document.createElement('tr');
+                        const pnlClass = trade.unrealized_profit >= 0 ? 'positive' : 'negative';
+                        const roiClass = trade.roi >= 0 ? 'positive' : 'negative';
+                        const side = trade.position_amt > 0 ? 'LONG' : 'SHORT';
+                        const sideClass = side === 'LONG' ? 'positive' : 'negative';
+                        row.innerHTML = `
+                            <td class="font-bold text-white">${trade.symbol}</td>
+                            <td class="font-bold ${sideClass}">${side}</td>
+                            <td>${Math.abs(trade.position_amt)}</td>
+                            <td class="${pnlClass}">${trade.unrealized_profit.toFixed(2)}</td>
+                            <td class="${roiClass}">${trade.roi.toFixed(2)}%</td>
+                            <td>$${trade.margin_used.toFixed(2)}</td>
+                        `;
+                        tradesTbody.appendChild(row);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to fetch active trades:', error);
+                tradesLoader.classList.add('hidden');
+                noTradesMessage.textContent = 'Error loading trades.';
+                noTradesMessage.classList.remove('hidden');
+                noTradesMessage.style.color = '#ef4444';
+            }
+        }
+        async function fetchBalance() {
+            try {
+                const response = await fetch('/api/account-balance');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                balanceLoader.classList.add('hidden');
+                usdtBalanceEl.classList.remove('hidden');
+                usdtBalanceEl.textContent = `$${data.usdt_balance.toFixed(2)}`;
+            } catch (error) {
+                console.error('Failed to fetch balance:', error);
+                balanceLoader.classList.add('hidden');
+                usdtBalanceEl.classList.remove('hidden');
+                usdtBalanceEl.textContent = 'Error';
+            }
+        }
+        async function fetchAnalysisData() {
+            try {
+                const response = await fetch('/api/trade-analysis');
+                if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                const data = await response.json();
+                analysisLoader.classList.add('hidden');
+                analysisContent.classList.remove('hidden');
+                if (data.error) {
+                    analysisErrorEl.textContent = data.error;
+                    analysisErrorEl.classList.remove('hidden');
+                    statsGrid.classList.add('hidden');
+                    document.querySelector('.chart-container').classList.add('hidden');
+                    return;
+                }
+                analysisErrorEl.classList.add('hidden');
+                statsGrid.classList.remove('hidden');
+                document.querySelector('.chart-container').classList.remove('hidden');
+                const netPnlEl = document.getElementById('stat-net-pnl');
+                netPnlEl.textContent = `$${data.net_pnl.toFixed(2)}`;
+                netPnlEl.className = `stat-value ${data.net_pnl >= 0 ? 'positive' : 'negative'}`;
+                document.getElementById('stat-win-rate').textContent = `${data.win_rate.toFixed(2)}%`;
+                document.getElementById('stat-profit-factor').textContent = data.profit_factor.toFixed(2);
+                document.getElementById('stat-total-trades').textContent = data.total_trades;
+                document.getElementById('stat-avg-win').textContent = `$${data.avg_win.toFixed(2)}`;
+                document.getElementById('stat-avg-loss').textContent = `$${data.avg_loss.toFixed(2)}`;
+                renderEquityChart(data.equity_curve);
+            } catch (error) {
+                console.error('Failed to fetch analysis data:', error);
+                analysisLoader.classList.add('hidden');
+                analysisContent.classList.remove('hidden');
+                analysisErrorEl.textContent = 'Error loading analysis data.';
+                analysisErrorEl.classList.remove('hidden');
+                statsGrid.classList.add('hidden');
+                document.querySelector('.chart-container').classList.add('hidden');
+            }
+        }
+        function renderEquityChart(chartData) {
+            const ctx = document.getElementById('equity-chart').getContext('2d');
+            const data = {
+                labels: chartData.map(d => new Date(d.close_time)),
+                datasets: [{
+                    label: 'Cumulative PNL',
+                    data: chartData.map(d => d.cumulative_pnl),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    tension: 0.1,
+                    fill: true,
+                }]
+            };
+            const config = {
+                type: 'line',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'time', time: { unit: 'day' }, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#9ca3af' } },
+                        y: { beginAtZero: false, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#9ca3af', callback: function(value) { return '$' + value; } } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            };
+            if (equityChart) { equityChart.destroy(); }
+            equityChart = new Chart(ctx, config);
+        }
+
+        function fetchAllData() {
+            fetchActiveTrades();
+            fetchBalance();
+            fetchAnalysisData();
+        }
+
+        // --- Initial Load and Intervals ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add click listener for the new button
+            botControlButton.addEventListener('click', toggleBot);
+            
+            // Initial data fetches
+            fetchAllData();
+            getBotStatus();
+
+            // Set up intervals
+            setInterval(fetchAllData, 30000); // Refresh dashboard data every 30 seconds
+            setInterval(getBotStatus, 5000); // Refresh bot status every 5 seconds
+        });
+    </script>
+</body>
+</html>

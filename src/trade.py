@@ -101,7 +101,8 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         print(f"Entry order placed successfully: {order['orderId']}")
         log_trade({
             "symbol": symbol, "USDT_balance": usdt_balance, "side": side, 
-            "quantity": quantity, "price": limit_price, "reason": reason_to_open
+            "quantity": quantity, "price": limit_price, "reason": reason_to_open,
+            "timestamp": pd.Timestamp.now().isoformat()
         })
 
         # 2. Stop-Loss Order

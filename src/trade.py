@@ -39,10 +39,11 @@ async def cancel_open_orders(symbol):
         print(f"Error canceling open orders for {symbol}: {e}")
 
 
-def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None):
+# --- MODIFIED FUNCTION SIGNATURE ---
+def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None, df=None):
     
     RISK_PER_TRADE = 0.02  # Risking 2% of the account per trade.
-    RISK_REWARD_RATIO = 2 # Aiming for 1.5x our risk
+    RISK_REWARD_RATIO = 2 # Aiming for 2x our risk
 
     try:
         set_margin_type(symbol, margin_type='ISOLATED')
@@ -53,15 +54,24 @@ def place_order(symbol, side, usdt_balance, reason_to_open, reduce_only=False, s
         limit_price = round_price(symbol, price)
 
         # --- POSITION SIZING AND TP/SL CALCULATION ---
-        if stop_loss_atr_multiplier is None or atr_value is None:
-            print("Cannot calculate position size without ATR and multiplier.")
+        if stop_loss_atr_multiplier is None or atr_value is None or df is None:
+            print("Cannot calculate position size without ATR, multiplier, and historical data.")
             return
 
-        # 1. Calculate Stop-Loss Price and Distance
+        # --- DYNAMIC STOP-LOSS CALCULATION ---
         if side == SIDE_BUY:
-            stop_loss_price = limit_price - (atr_value * stop_loss_atr_multiplier)
+            atr_stop_loss = limit_price - (atr_value * stop_loss_atr_multiplier)
+            # Find the low of the last 3 candles
+            recent_low = df['low'].iloc[-3:].min()
+            # Use the more conservative (lower) of the two for the stop-loss
+            stop_loss_price = min(atr_stop_loss, recent_low)
         else: # SIDE_SELL
-            stop_loss_price = limit_price + (atr_value * stop_loss_atr_multiplier)
+            atr_stop_loss = limit_price + (atr_value * stop_loss_atr_multiplier)
+            # Find the high of the last 3 candles
+            recent_high = df['high'].iloc[-3:].max()
+            # Use the more conservative (higher) of the two for the stop-loss
+            stop_loss_price = max(atr_stop_loss, recent_high)
+        
         stop_loss_price = round_price(symbol, stop_loss_price)
         
         stop_loss_distance = abs(limit_price - stop_loss_price)

@@ -35,6 +35,7 @@ async def process_symbol(symbol):
         df, support, resistance  = fetch_klines(symbol, interval)
         df = add_price_sma(df, period=50)
         df = add_volume_sma(df, period=20)
+        df = add_short_term_sma(df, period=9) # For retracement entries
         stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
         df = calculate_rsi(df, period=14)
         df = calculate_atr(df)

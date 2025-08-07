@@ -51,3 +51,8 @@ def add_volume_sma(df, period=20):
     """Calculate the Simple Moving Average of the volume."""
     df[f'volume_sma_{period}'] = df['volume'].rolling(window=period).mean()
     return df
+
+def add_short_term_sma(df, period=9):
+    """Calculate a short-term Simple Moving Average."""
+    df[f'price_sma_{period}'] = df['close'].rolling(window=period).mean()
+    return df

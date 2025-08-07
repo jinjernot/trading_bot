@@ -3,9 +3,9 @@ import asyncio
 from threading import Lock, Thread
 from flask import Flask, render_template, jsonify
 from binance.client import Client
+import requests
 
 # --- Local Imports from your project ---
-# Note: We import functions directly as the bot logic is now in this file.
 from data.get_data import get_usdt_balance, fetch_klines, get_position, detect_trend, get_funding_rate, get_symbol_info
 from data.indicators import add_price_sma, add_volume_sma, calculate_stoch, calculate_rsi, calculate_atr, PERIOD, K, D
 from analysis import analyze_trades
@@ -18,8 +18,10 @@ from src.open_position_copy import open_position_long, open_position_short
 
 app = Flask(__name__)
 
-# A single, shared client instance for the entire web application
+# The python-binance library handles time synchronization automatically.
+# A single, shared client instance for the entire web application.
 client = Client(API_KEY, API_SECRET)
+
 
 # --- Server-Side Caching Mechanism ---
 CACHE = {
@@ -52,21 +54,17 @@ def refresh_cache():
             if position_amt != 0:
                 symbol = position['symbol']
                 entry_price = float(position.get('entryPrice', 0))
-                position_leverage = int(position.get('leverage', leverage))
                 
                 # --- START: Real-time PNL Calculation ---
                 try:
-                    # Fetch the current mark price for the symbol
                     mark_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
-                    
-                    # Calculate unrealized PNL manually
                     unrealized_profit = (mark_price - entry_price) * position_amt
                 except Exception as e:
                     print(f"Could not fetch mark price for {symbol}, falling back to API value. Error: {e}")
-                    # Fallback to the value from the API if the mark price can't be fetched
                     unrealized_profit = float(position.get('unrealizedProfit', 0.0))
                 # --- END: Real-time PNL Calculation ---
 
+                position_leverage = int(position.get('leverage', leverage))
                 margin_used = (abs(position_amt) * entry_price) / position_leverage if position_leverage != 0 else 0
                 roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
                 
@@ -82,10 +80,8 @@ def refresh_cache():
         print("Cache refreshed successfully.")
     except Exception as e:
         print(f"!!! CRITICAL: FAILED to refresh cache from Binance API: {e}")
-        # To prevent spamming the API on failure, we still update the timestamp, 
-        # but make the cache expire sooner.
         CACHE['last_fetch_timestamp'] = time.time() - CACHE_LIFESPAN + 5
-        
+
 @app.before_request
 def check_cache_freshness():
     """Runs before each request to check and refresh the cache if stale."""
@@ -199,3 +195,4 @@ if __name__ == "__main__":
     # Now, running this file starts only the web server.
     # The trading bot must be started via the API.
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+

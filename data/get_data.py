@@ -38,14 +38,29 @@ def get_position(symbol):
             if pos['symbol'] == symbol:
                 position_amt = float(pos['positionAmt'])
                 entry_price = float(pos['entryPrice'])
+                
+                # If there is no position, return all zeros immediately.
+                if position_amt == 0:
+                    return 0, 0, 0, 0
+
                 current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
                 order_size = abs(position_amt) * entry_price
-                margin_used = order_size / leverage
+                
+                # --- FIX: Prevent division by zero ---
+                # Use the position's actual leverage, falling back to the config setting.
+                position_leverage = int(pos.get('leverage', leverage)) 
+                margin_used = (order_size / position_leverage) if position_leverage != 0 else 0
+                
                 unrealized_profit = (current_price - entry_price) * position_amt
-                roi = (unrealized_profit / margin_used) * 100 
+                
+                # --- FIX: Prevent division by zero ---
+                roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
                 
                 return position_amt, roi, unrealized_profit, margin_used
+        
+        # If the loop completes without finding the symbol
         return 0, 0, 0, 0
+        
     except Exception as e:
         print(f"Error getting position for {symbol}: {e}")
         return 0, 0, 0, 0

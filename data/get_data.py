@@ -10,21 +10,22 @@ from data.plot import plot_channel
 
 client = Client(API_KEY, API_SECRET)
 
-# --- NEW: Function to fetch data for multiple timeframes ---
 def fetch_multi_timeframe_data(symbol, short_interval, long_interval):
     """
     Fetches candlestick data for both a short and a long timeframe.
-    Returns two DataFrames: one for the short interval and one for the long interval.
+    Returns both DataFrames and their respective support/resistance levels.
     """
-    print(f"Fetching multi-timeframe data for {symbol}: {short_interval} and {long_interval}")
+    # --- MODIFIED: Conditional print ---
+    if VERBOSE_LOGGING:
+        print(f"Fetching multi-timeframe data for {symbol}: {short_interval} and {long_interval}")
     
-    # Fetch short-term data (e.g., 15m)
-    df_short = fetch_klines(symbol, short_interval, lookback='100')
+    # Fetch and unpack short-term data (e.g., 15m)
+    df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='100')
     
-    # Fetch long-term data (e.g., 4h)
-    df_long = fetch_klines(symbol, long_interval, lookback='100')
+    # Fetch and unpack long-term data (e.g., 4h)
+    df_long, support_long, resistance_long = fetch_klines(symbol, long_interval, lookback='100')
     
-    return df_short, df_long
+    return df_short, support_short, resistance_short, df_long, support_long, resistance_long
 
 # Get Token
 def get_symbol_info(symbol):
@@ -163,46 +164,6 @@ def detect_trend(df, window=4, confirm=2):
         return trend
     else:
         return 'sideways'
-
-# Function to detect local peaks (highs) and valleys (lows)
-def detect_local_extrema(df):
-    # Find local maxima (peaks) and local minima (valleys)
-    peaks = (df['high'].shift(1) < df['high']) & (df['high'].shift(-1) < df['high'])
-    valleys = (df['low'].shift(1) > df['low']) & (df['low'].shift(-1) > df['low'])
-
-    # Extract the indices of peaks and valleys
-    peak_indices = df.index[peaks]
-    valley_indices = df.index[valleys]
-
-    return peak_indices, valley_indices
-
-# Function to fit a trend line using the given indices (peaks or valleys)
-def fit_trend_line(df, indices, price_column):
-    x = indices  # x values are the time indices
-    y = df[price_column].iloc[indices]  # y values are the high/low prices at the peak or valley
-    slope, intercept = np.polyfit(x, y, 1)  # Fit a line: y = mx + b
-    return slope, intercept
-
-async def detect_parallel_channel(df, symbol):
-    # Get local peaks and valleys
-    peak_indices, valley_indices = detect_local_extrema(df)
-
-    if len(peak_indices) < 4 or len(valley_indices) < 4:
-        print("Not enough peaks or valleys to form a channel.")
-        return None, None
-
-    # Fit trend lines for both peaks (resistance) and valleys (support)
-    resistance_slope, resistance_intercept = fit_trend_line(df, peak_indices, 'high')
-    support_slope, support_intercept = fit_trend_line(df, valley_indices, 'low')
-
-    # Ensure the slopes are the same for both resistance and support
-    average_slope = (resistance_slope + support_slope) / 2
-    resistance_slope = support_slope = average_slope
-    trend = detect_trend(df)
-    await plot_channel(df, symbol, resistance_slope, resistance_intercept, support_slope, support_intercept, trend)
-
-
-    return resistance_slope, resistance_intercept, support_slope, support_intercept
 
 def get_funding_rate(symbol):
     try:

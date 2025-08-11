@@ -2,7 +2,6 @@ from src.close_position import *
 from src.open_position_copy import *
 from src.trade import *
   
-# --- MODIFIED: Import the new multi-timeframe function ---
 from data.get_data import *
 from data.indicators import *
 
@@ -21,21 +20,21 @@ MAX_CONCURRENT_TRADES = 4
 MAX_CONSECUTIVE_LOSSES = 3
 COOL_DOWN_PERIOD_SECONDS = 3600 # 1 hour
 
-# --- NEW: Timeframe Settings ---
+# --- Timeframe Settings ---
 SHORT_TERM_INTERVAL = '15m'
 LONG_TERM_INTERVAL = '4h'
 
 async def process_symbol(symbol):
     
     try:
-        # --- MODIFIED: Fetch data for both timeframes ---
-        df_15m, df_4h = await asyncio.to_thread(fetch_multi_timeframe_data, symbol, SHORT_TERM_INTERVAL, LONG_TERM_INTERVAL)
+        df_15m, support_15m, resistance_15m, df_4h, support_4h, resistance_4h = await asyncio.to_thread(
+            fetch_multi_timeframe_data, symbol, SHORT_TERM_INTERVAL, LONG_TERM_INTERVAL
+        )
         
-        # --- NEW: Determine the long-term trend from the 4h chart ---
         long_term_trend = detect_trend(df_4h)
-        print(f"Long-term trend for {symbol} on {LONG_TERM_INTERVAL} chart: {long_term_trend}")
+        if VERBOSE_LOGGING:
+            print(f"Long-term trend for {symbol} on {LONG_TERM_INTERVAL} chart: {long_term_trend}")
         
-        # --- Process 15m data for entry signals ---
         df_15m = add_price_sma(df_15m, period=50)
         df_15m = add_volume_sma(df_15m, period=20)
         df_15m = add_short_term_sma(df_15m, period=9)
@@ -44,38 +43,53 @@ async def process_symbol(symbol):
         df_15m = calculate_atr(df_15m)
         atr_value = df_15m['atr'].iloc[-1]
         
-        # Volatility Filter
         last_close = df_15m['close'].iloc[-1]
         atr_percentage = (atr_value / last_close) * 100
         MIN_VOLATILITY = 0.2
         MAX_VOLATILITY = 2.0
         if not (MIN_VOLATILITY < atr_percentage < MAX_VOLATILITY):
-            print(f"Skipping {symbol}: Volatility ({atr_percentage:.2f}%) is outside the optimal range.")
+            if VERBOSE_LOGGING:
+                print(f"Skipping {symbol}: Volatility ({atr_percentage:.2f}%) is outside the optimal range.")
             return
         
         position, roi, unrealized_profit, margin_used = get_position(symbol)
         usdt_balance = get_usdt_balance()
         funding_rate = get_funding_rate(symbol)
         
-        # For exits, we still use the 15m data
         if position > 0:
-            await close_position_long(symbol, position, roi, df_15m, stoch_k, df_15m['high'].max())
+            await close_position_long(symbol, position, roi, df_15m, stoch_k, resistance_15m)
         elif position < 0:
-            await close_position_short(symbol, position, roi, df_15m, stoch_k, df_15m['low'].min())
+            await close_position_short(symbol, position, roi, df_15m, stoch_k, support_15m)
         
+        if bot_state.consecutive_losses >= MAX_CONSECUTIVE_LOSSES and not bot_state.trading_paused:
+            print(f"\n!!! CIRCUIT BREAKER: Pausing new trades for 1 hour due to {bot_state.consecutive_losses} consecutive losses. !!!\n")
+            bot_state.trading_paused = True
+
         if bot_state.trading_paused:
             return
 
-        # --- MODIFIED: Core logic now uses the long-term trend as a filter ---
         if position == 0:
             if long_term_trend == 'uptrend':
-                print(f"4h trend is UP. Looking for a LONG entry on the 15m chart for {symbol}.")
-                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, df_15m['low'].min(), df_15m['high'].max(), atr_value, funding_rate)
+                if VERBOSE_LOGGING:
+                    print(f"4h trend is UP. Looking for a LONG entry on the 15m chart for {symbol}.")
+                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
             elif long_term_trend == 'downtrend':
-                print(f"4h trend is DOWN. Looking for a SHORT entry on the 15m chart for {symbol}.")
-                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, df_15m['low'].min(), df_15m['high'].max(), atr_value, funding_rate)
-            else:
-                print(f"4h trend is SIDEWAYS for {symbol}. No new trades will be opened.")
+                if VERBOSE_LOGGING:
+                    print(f"4h trend is DOWN. Looking for a SHORT entry on the 15m chart for {symbol}.")
+                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
+            
+            proximity_threshold = 0.01
+            
+            if long_term_trend == 'downtrend' and (abs(last_close - support_4h) / last_close) < proximity_threshold:
+                if VERBOSE_LOGGING:
+                    print(f"REVERSAL SETUP: 4h trend is DOWN, but price is testing major 4h support for {symbol}.")
+                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
+
+            if long_term_trend == 'uptrend' and (abs(last_close - resistance_4h) / last_close) < proximity_threshold:
+                if VERBOSE_LOGGING:
+                    print(f"REVERSAL SETUP: 4h trend is UP, but price is testing major 4h resistance for {symbol}.")
+                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
+
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(1)

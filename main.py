@@ -2,6 +2,7 @@ from src.close_position import *
 from src.open_position_copy import *
 from src.trade import *
   
+# --- MODIFIED: Import the new multi-timeframe function ---
 from data.get_data import *
 from data.indicators import *
 
@@ -9,7 +10,6 @@ from data.indicators import add_short_term_sma
 
 from src.telegram_bot import *
 from config.settings import *
-# --- MODIFIED: Ensure we're importing from our new curated list ---
 from config.symbols import symbols
 from src.state_manager import bot_state
 
@@ -21,40 +21,32 @@ MAX_CONCURRENT_TRADES = 4
 MAX_CONSECUTIVE_LOSSES = 3
 COOL_DOWN_PERIOD_SECONDS = 3600 # 1 hour
 
+# --- NEW: Timeframe Settings ---
+SHORT_TERM_INTERVAL = '15m'
+LONG_TERM_INTERVAL = '4h'
+
 async def process_symbol(symbol):
     
     try:
-        print(f"Processing symbol: {symbol}...")
-        client.futures_change_leverage(symbol=symbol, leverage=leverage)
-    except Exception as e:
-        if 'APIError(code=-4028)' in str(e):
-            print(f"Leverage {leverage} is not valid for {symbol}. Trying to set leverage to 10.")
-            try:
-                client.futures_change_leverage(symbol=symbol, leverage=10)
-            except Exception as e2:
-                print(f"Failed to set leverage to 10 for {symbol}: {e2}")
-                return
-        else:
-            print(f"An unexpected error occurred while setting leverage for {symbol}: {e}")
-            return
-
-    try:
-        df, support, resistance  = fetch_klines(symbol, interval)
-        df = add_price_sma(df, period=50)
-        df = add_volume_sma(df, period=20)
-        df = add_short_term_sma(df, period=9)
-        stoch_k, stoch_d = calculate_stoch(df['high'], df['low'], df['close'], PERIOD, K, D)
-        df = calculate_rsi(df, period=14)
-        df = calculate_atr(df)
-        atr_value = df['atr'].iloc[-1]
+        # --- MODIFIED: Fetch data for both timeframes ---
+        df_15m, df_4h = await asyncio.to_thread(fetch_multi_timeframe_data, symbol, SHORT_TERM_INTERVAL, LONG_TERM_INTERVAL)
         
-        # --- NEW: Volatility Filter ---
-        last_close = df['close'].iloc[-1]
-        # Calculate ATR as a percentage of the closing price
+        # --- NEW: Determine the long-term trend from the 4h chart ---
+        long_term_trend = detect_trend(df_4h)
+        print(f"Long-term trend for {symbol} on {LONG_TERM_INTERVAL} chart: {long_term_trend}")
+        
+        # --- Process 15m data for entry signals ---
+        df_15m = add_price_sma(df_15m, period=50)
+        df_15m = add_volume_sma(df_15m, period=20)
+        df_15m = add_short_term_sma(df_15m, period=9)
+        stoch_k, stoch_d = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], PERIOD, K, D)
+        df_15m = calculate_rsi(df_15m, period=14)
+        df_15m = calculate_atr(df_15m)
+        atr_value = df_15m['atr'].iloc[-1]
+        
+        # Volatility Filter
+        last_close = df_15m['close'].iloc[-1]
         atr_percentage = (atr_value / last_close) * 100
-        # Define your optimal volatility range. For a 15m chart, a good range is often between 0.2% and 2.0%.
-        # This avoids trading when the market is too flat (less than 0.2% movement per candle)
-        # or too volatile (more than 2.0% movement per candle).
         MIN_VOLATILITY = 0.2
         MAX_VOLATILITY = 2.0
         if not (MIN_VOLATILITY < atr_percentage < MAX_VOLATILITY):
@@ -63,34 +55,27 @@ async def process_symbol(symbol):
         
         position, roi, unrealized_profit, margin_used = get_position(symbol)
         usdt_balance = get_usdt_balance()
-        trend = detect_trend(df)
         funding_rate = get_funding_rate(symbol)
-
-        if VERBOSE_LOGGING:
-            print(f"\n--- Verbose Log for {symbol} ({nice_interval}) ---")
-            print(f"Stochastic K: {stoch_k.iloc[-3:].values}")
-            print(f"Stochastic D: {stoch_d.iloc[-3:].values}")
-            print(f"RSI: {df['rsi'].iloc[-3:].values}")
-            print(f"Position: {position}, ROI: {roi:.2f}%")
-            print(f"--- End Log ---\n")
         
+        # For exits, we still use the 15m data
         if position > 0:
-            await close_position_long(symbol, position, roi, df, stoch_k, resistance)
+            await close_position_long(symbol, position, roi, df_15m, stoch_k, df_15m['high'].max())
         elif position < 0:
-            await close_position_short(symbol, position, roi, df, stoch_k, support)
+            await close_position_short(symbol, position, roi, df_15m, stoch_k, df_15m['low'].min())
         
-        if bot_state.consecutive_losses >= MAX_CONSECUTIVE_LOSSES and not bot_state.trading_paused:
-            print(f"\n!!! CIRCUIT BREAKER: Pausing new trades for 1 hour due to {bot_state.consecutive_losses} consecutive losses. !!!\n")
-            bot_state.trading_paused = True
-
         if bot_state.trading_paused:
             return
 
+        # --- MODIFIED: Core logic now uses the long-term trend as a filter ---
         if position == 0:
-            if trend == 'uptrend':
-                await open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)
-            elif trend == 'downtrend':
-                await open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate)     
+            if long_term_trend == 'uptrend':
+                print(f"4h trend is UP. Looking for a LONG entry on the 15m chart for {symbol}.")
+                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, df_15m['low'].min(), df_15m['high'].max(), atr_value, funding_rate)
+            elif long_term_trend == 'downtrend':
+                print(f"4h trend is DOWN. Looking for a SHORT entry on the 15m chart for {symbol}.")
+                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, df_15m['low'].min(), df_15m['high'].max(), atr_value, funding_rate)
+            else:
+                print(f"4h trend is SIDEWAYS for {symbol}. No new trades will be opened.")
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(1)
@@ -134,4 +119,4 @@ if __name__ == "__main__":
         print("Bot starting in VERBOSE mode.")
     else:
         print("Bot starting in QUIET mode.")
-    asyncio.run(main())     
+    asyncio.run(main())

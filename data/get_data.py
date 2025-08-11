@@ -10,6 +10,22 @@ from data.plot import plot_channel
 
 client = Client(API_KEY, API_SECRET)
 
+# --- NEW: Function to fetch data for multiple timeframes ---
+def fetch_multi_timeframe_data(symbol, short_interval, long_interval):
+    """
+    Fetches candlestick data for both a short and a long timeframe.
+    Returns two DataFrames: one for the short interval and one for the long interval.
+    """
+    print(f"Fetching multi-timeframe data for {symbol}: {short_interval} and {long_interval}")
+    
+    # Fetch short-term data (e.g., 15m)
+    df_short = fetch_klines(symbol, short_interval, lookback='100')
+    
+    # Fetch long-term data (e.g., 4h)
+    df_long = fetch_klines(symbol, long_interval, lookback='100')
+    
+    return df_short, df_long
+
 # Get Token
 def get_symbol_info(symbol):
     info = client.futures_exchange_info()
@@ -38,29 +54,14 @@ def get_position(symbol):
             if pos['symbol'] == symbol:
                 position_amt = float(pos['positionAmt'])
                 entry_price = float(pos['entryPrice'])
-                
-                # If there is no position, return all zeros immediately.
-                if position_amt == 0:
-                    return 0, 0, 0, 0
-
                 current_price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
                 order_size = abs(position_amt) * entry_price
-                
-                # --- FIX: Prevent division by zero ---
-                # Use the position's actual leverage, falling back to the config setting.
-                position_leverage = int(pos.get('leverage', leverage)) 
-                margin_used = (order_size / position_leverage) if position_leverage != 0 else 0
-                
+                margin_used = order_size / leverage
                 unrealized_profit = (current_price - entry_price) * position_amt
-                
-                # --- FIX: Prevent division by zero ---
-                roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
+                roi = (unrealized_profit / margin_used) * 100 
                 
                 return position_amt, roi, unrealized_profit, margin_used
-        
-        # If the loop completes without finding the symbol
         return 0, 0, 0, 0
-        
     except Exception as e:
         print(f"Error getting position for {symbol}: {e}")
         return 0, 0, 0, 0
@@ -98,7 +99,6 @@ def round_price(symbol, price):
 
 # Get candles
 def fetch_klines(symbol, interval, lookback='100'):
-    print(f"Fetching candles for {symbol} with interval {interval} and lookback {lookback}")
     klines = client.futures_klines(symbol=symbol, interval=interval, limit=lookback)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 
                                        'volume', 'close_time', 'quote_volume', 
@@ -110,8 +110,6 @@ def fetch_klines(symbol, interval, lookback='100'):
     support = df['low'].min()
     resistance = df['high'].max()
         
-    print(f"Support: {support}, Resistance: {resistance}")
-    
     # Return the DataFrame along with support and resistance levels
     return df, support, resistance 
 

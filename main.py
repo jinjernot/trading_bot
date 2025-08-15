@@ -27,7 +27,7 @@ LONG_TERM_INTERVAL = '4h'
 async def process_symbol(symbol):
     
     try:
-        df_15m, support_15m, resistance_15m, df_4h, support_4h, resistance_4h = await asyncio.to_thread(
+        df_15m, support_15m, resistance_15m, df_4h, support_4h, resistance_4h, stoch_k_4h, stoch_d_4h = await asyncio.to_thread(
             fetch_multi_timeframe_data, symbol, SHORT_TERM_INTERVAL, LONG_TERM_INTERVAL
         )
         
@@ -38,9 +38,11 @@ async def process_symbol(symbol):
         df_15m = add_price_sma(df_15m, period=50)
         df_15m = add_volume_sma(df_15m, period=20)
         df_15m = add_short_term_sma(df_15m, period=9)
-        stoch_k, stoch_d = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], PERIOD, K, D)
+        stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], PERIOD, K, D)
         df_15m = calculate_rsi(df_15m, period=14)
         df_15m = calculate_atr(df_15m)
+        df_15m = calculate_adx(df_15m)
+        df_15m = calculate_bollinger_bands(df_15m)
         atr_value = df_15m['atr'].iloc[-1]
         
         last_close = df_15m['close'].iloc[-1]
@@ -52,44 +54,89 @@ async def process_symbol(symbol):
                 print(f"Skipping {symbol}: Volatility ({atr_percentage:.2f}%) is outside the optimal range.")
             return
         
-        position, roi, unrealized_profit, margin_used = get_position(symbol)
+        position, roi, unrealized_profit, margin_used, entry_price = get_position(symbol)
         usdt_balance = get_usdt_balance()
         funding_rate = get_funding_rate(symbol)
         
-        if position > 0:
-            await close_position_long(symbol, position, roi, df_15m, stoch_k, resistance_15m)
-        elif position < 0:
-            await close_position_short(symbol, position, roi, df_15m, stoch_k, support_15m)
+        if position != 0 and roi >= BREAKEVEN_ROI_TARGET and not bot_state.breakeven_triggered.get(symbol):
+            trade_side = SIDE_BUY if position > 0 else SIDE_SELL
+            if await move_stop_to_breakeven(symbol, entry_price, trade_side):
+                bot_state.breakeven_triggered[symbol] = True
         
-        if bot_state.consecutive_losses >= MAX_CONSECUTIVE_LOSSES and not bot_state.trading_paused:
-            print(f"\n!!! CIRCUIT BREAKER: Pausing new trades for 1 hour due to {bot_state.consecutive_losses} consecutive losses. !!!\n")
-            bot_state.trading_paused = True
+        if position == 0 and bot_state.breakeven_triggered.get(symbol):
+            del bot_state.breakeven_triggered[symbol]
+            if VERBOSE_LOGGING:
+                print(f"Reset breakeven flag for closed position {symbol}.")
 
+        adx_value = df_15m['ADX'].iloc[-1]
+        last_volume = df_15m['volume'].iloc[-1]
+        volume_sma = df_15m['volume_sma_20'].iloc[-1]
+        
+        if adx_value < 20 and last_volume < volume_sma:
+            if VERBOSE_LOGGING:
+                print(f"Skipping {symbol}: Market is too quiet (ADX: {adx_value:.2f}, Volume is below average).")
+            return
+
+        bb_upper = df_15m['BB_Upper'].iloc[-1]
+        bb_lower = df_15m['BB_Lower'].iloc[-1]
+        bb_mid = df_15m['BB_Mid'].iloc[-1]
+        bb_width = ((bb_upper - bb_lower) / bb_mid) * 100
+        MIN_BB_WIDTH = 1.5
+        
+        if bb_width < MIN_BB_WIDTH:
+            if VERBOSE_LOGGING:
+                print(f"Skipping {symbol}: Market is too choppy (Bollinger Band Width: {bb_width:.2f}%).")
+            return
+        
+        if (long_term_trend == 'uptrend' and funding_rate > 0.001) or \
+           (long_term_trend == 'downtrend' and funding_rate < -0.001):
+            if VERBOSE_LOGGING:
+                print(f"Skipping {symbol}: Unfavorable funding rate ({funding_rate:.4f}) for the current trend.")
+            return
+
+        if position > 0:
+            await close_position_long(symbol, position, roi, df_15m, stoch_k_15m, resistance_15m)
+        elif position < 0:
+            await close_position_short(symbol, position, roi, df_15m, stoch_k_15m, support_15m)
+        
         if bot_state.trading_paused:
             return
 
         if position == 0:
-            if long_term_trend == 'uptrend':
-                if VERBOSE_LOGGING:
-                    print(f"4h trend is UP. Looking for a LONG entry on the 15m chart for {symbol}.")
-                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
-            elif long_term_trend == 'downtrend':
-                if VERBOSE_LOGGING:
-                    print(f"4h trend is DOWN. Looking for a SHORT entry on the 15m chart for {symbol}.")
-                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
+            trade_opened = False
             
-            proximity_threshold = 0.01
+            stoch_4h_oversold = stoch_k_4h.iloc[-1] < OVERSOLD
+            stoch_4h_overbought = stoch_k_4h.iloc[-1] > OVERBOUGHT
             
-            if long_term_trend == 'downtrend' and (abs(last_close - support_4h) / last_close) < proximity_threshold:
+            # --- NEW: Get 4-Hour Moving Average ---
+            sma_4h = df_4h['price_sma_50'].iloc[-1]
+            price_above_4h_sma = last_close > sma_4h
+            price_below_4h_sma = last_close < sma_4h
+            
+            # Override 1: LONG reversal
+            if long_term_trend == 'downtrend' and stoch_4h_oversold:
                 if VERBOSE_LOGGING:
-                    print(f"REVERSAL SETUP: 4h trend is DOWN, but price is testing major 4h support for {symbol}.")
-                await open_position_long(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
-
-            if long_term_trend == 'uptrend' and (abs(last_close - resistance_4h) / last_close) < proximity_threshold:
+                    print(f"OVERRIDE: 4h trend is DOWN but Stoch is OVERSOLD. Prioritizing LONG.")
+                trade_opened = await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+            
+            # Override 2: SHORT reversal
+            elif long_term_trend == 'uptrend' and stoch_4h_overbought:
                 if VERBOSE_LOGGING:
-                    print(f"REVERSAL SETUP: 4h trend is UP, but price is testing major 4h resistance for {symbol}.")
-                await open_position_short(symbol, df_15m, stoch_k, stoch_d, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate)
-
+                    print(f"OVERRIDE: 4h trend is UP but Stoch is OVERBOUGHT. Prioritizing SHORT.")
+                trade_opened = await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+            
+            if not trade_opened:
+                # --- MODIFIED: Added 4h SMA check to trend-following logic ---
+                if long_term_trend == 'uptrend' and price_above_4h_sma:
+                    if VERBOSE_LOGGING:
+                        print(f"CONFIRMED UPTREND: 4h trend is UP and price is above 4h SMA for {symbol}.")
+                    trade_opened = await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+                
+                elif long_term_trend == 'downtrend' and price_below_4h_sma:
+                    if VERBOSE_LOGGING:
+                        print(f"CONFIRMED DOWNTREND: 4h trend is DOWN and price is below 4h SMA for {symbol}.")
+                    trade_opened = await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+    
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(1)

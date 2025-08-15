@@ -4,105 +4,124 @@ from data.indicators import *
 from src.telegram_bot import send_telegram_message
 from config.settings import *
 
-async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate):
-    """
-    Opens a long position with candle confirmation (retracement condition removed).
-    """
-    # Conditions based on the second-to-last candle
-    entry_candle_close = df['close'].iloc[-2]
-    entry_candle_rsi = df['rsi'].iloc[-2]
-    entry_candle_volume = df['volume'].iloc[-2]
-    price_sma = df['price_sma_50'].iloc[-2]
-    volume_sma = df['volume_sma_20'].iloc[-2]
-
-    # Confirmation from the most recent candle
-    confirmation_candle_close = df['close'].iloc[-1]
-
-    # --- Entry Conditions ---
-    price_above_sma = entry_candle_close > price_sma
-    rsi_is_bullish = entry_candle_rsi > 50 and entry_candle_rsi < 75
-    volume_is_strong = entry_candle_volume > volume_sma
-    stochastic_signal = (
-        stoch_k.iloc[-2] > OVERSOLD and
-        stoch_k.iloc[-3] <= OVERSOLD and
-        stoch_k.iloc[-2] > stoch_d.iloc[-2]
-    )
-    funding_rate_is_healthy = funding_rate < 0.0004
+async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
     
-    # --- Confirmation Condition ---
-    confirmation_is_bullish = confirmation_candle_close > entry_candle_close
-
-    # --- MODIFIED Final Check (Retracement condition is removed) ---
-    if (stochastic_signal and 
-        price_above_sma and 
-        rsi_is_bullish and 
-        volume_is_strong and 
-        funding_rate_is_healthy and 
-        confirmation_is_bullish):
+    if AGGRESSIVE_ENTRY:
+        price_sma = df['price_sma_50'].iloc[-1]
+        last_rsi = df['rsi'].iloc[-1]
+        last_volume = df['volume'].iloc[-1]
+        volume_sma = df['volume_sma_20'].iloc[-1]
+        last_close = df['close'].iloc[-1]
         
-        print(f"Placing order for {symbol} due to strong bullish confluence with confirmation.")
-        
-        place_order(
-            symbol=symbol, 
-            side=SIDE_BUY, 
-            usdt_balance=usdt_balance, 
-            reason_to_open="Bullish confluence with candle confirmation", 
-            stop_loss_atr_multiplier=1.5, 
-            atr_value=atr_value,
-            df=df # Pass the dataframe for dynamic SL
+        stochastic_signal = (
+            stoch_k.iloc[-1] > OVERSOLD and
+            stoch_k.iloc[-2] <= OVERSOLD and
+            stoch_k.iloc[-1] > stoch_d.iloc[-1]
         )
-        return True
+        
+        price_above_sma = last_close > price_sma
+        rsi_is_bullish = last_rsi > 50 and last_rsi < 75
+        volume_is_strong = last_volume > volume_sma
+        funding_rate_is_healthy = funding_rate < 0.0004
+        
+        if (stochastic_signal and price_above_sma and rsi_is_bullish and 
+            volume_is_strong and funding_rate_is_healthy):
+            
+            print(f"Placing AGGRESSIVE order for {symbol} due to strong bullish confluence.")
+            place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
+                        reason_to_open="Bullish confluence (Aggressive)", 
+                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                        support_4h=support_4h, resistance_4h=resistance_4h)
+            return True
+
     else:
-        return False
+        entry_candle_close = df['close'].iloc[-2]
+        entry_candle_rsi = df['rsi'].iloc[-2]
+        entry_candle_volume = df['volume'].iloc[-2]
+        price_sma = df['price_sma_50'].iloc[-2]
+        volume_sma = df['volume_sma_20'].iloc[-2]
+        confirmation_candle_close = df['close'].iloc[-1]
 
-
-async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate):
-    """
-    Opens a short position with candle confirmation (retracement condition removed).
-    """
-    # Conditions based on the second-to-last candle
-    entry_candle_close = df['close'].iloc[-2]
-    entry_candle_rsi = df['rsi'].iloc[-2]
-    entry_candle_volume = df['volume'].iloc[-2]
-    price_sma = df['price_sma_50'].iloc[-2]
-    volume_sma = df['volume_sma_20'].iloc[-2]
-
-    # Confirmation from the most recent candle
-    confirmation_candle_close = df['close'].iloc[-1]
-
-    # --- Entry Conditions ---
-    price_below_sma = entry_candle_close < price_sma
-    rsi_is_bearish = entry_candle_rsi < 50 and entry_candle_rsi > 25
-    volume_is_strong = entry_candle_volume > volume_sma
-    stochastic_signal = (
-        stoch_k.iloc[-2] < OVERBOUGHT and
-        stoch_k.iloc[-3] >= OVERBOUGHT and
-        stoch_k.iloc[-2] < stoch_d.iloc[-2]
-    )
-    funding_rate_is_healthy = funding_rate > -0.0004
-
-    # --- Confirmation Condition ---
-    confirmation_is_bearish = confirmation_candle_close < entry_candle_close
-
-    # --- MODIFIED Final Check (Retracement condition is removed) ---
-    if (stochastic_signal and 
-        price_below_sma and 
-        rsi_is_bearish and 
-        volume_is_strong and 
-        funding_rate_is_healthy and
-        confirmation_is_bearish):
-        
-        print(f"Placing order for {symbol} due to strong bearish confluence with confirmation.")
-        
-        place_order(
-            symbol=symbol, 
-            side=SIDE_SELL, 
-            usdt_balance=usdt_balance, 
-            reason_to_open="Bearish confluence with candle confirmation", 
-            stop_loss_atr_multiplier=1.5, 
-            atr_value=atr_value,
-            df=df # Pass the dataframe for dynamic SL
+        price_above_sma = entry_candle_close > price_sma
+        rsi_is_bullish = entry_candle_rsi > 50 and entry_candle_rsi < 75
+        volume_is_strong = entry_candle_volume > volume_sma
+        stochastic_signal = (
+            stoch_k.iloc[-2] > OVERSOLD and
+            stoch_k.iloc[-3] <= OVERSOLD and
+            stoch_k.iloc[-2] > stoch_d.iloc[-2]
         )
-        return True
+        funding_rate_is_healthy = funding_rate < 0.0004
+        confirmation_is_bullish = confirmation_candle_close > entry_candle_close
+        
+        if (stochastic_signal and price_above_sma and rsi_is_bullish and 
+            volume_is_strong and funding_rate_is_healthy and confirmation_is_bullish):
+            
+            print(f"Placing SAFE order for {symbol} due to strong bullish confluence with confirmation.")
+            place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
+                        reason_to_open="Bullish confluence (Safe)", 
+                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                        support_4h=support_4h, resistance_4h=resistance_4h)
+            return True
+            
+    return False
+
+async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
+
+    if AGGRESSIVE_ENTRY:
+        price_sma = df['price_sma_50'].iloc[-1]
+        last_rsi = df['rsi'].iloc[-1]
+        last_volume = df['volume'].iloc[-1]
+        volume_sma = df['volume_sma_20'].iloc[-1]
+        last_close = df['close'].iloc[-1]
+        
+        stochastic_signal = (
+            stoch_k.iloc[-1] < OVERBOUGHT and
+            stoch_k.iloc[-2] >= OVERBOUGHT and
+            stoch_k.iloc[-1] < stoch_d.iloc[-1]
+        )
+        
+        price_below_sma = last_close < price_sma
+        rsi_is_bearish = last_rsi < 50 and last_rsi > 25
+        volume_is_strong = last_volume > volume_sma
+        funding_rate_is_healthy = funding_rate > -0.0004
+        
+        if (stochastic_signal and price_below_sma and rsi_is_bearish and 
+            volume_is_strong and funding_rate_is_healthy):
+
+            print(f"Placing AGGRESSIVE order for {symbol} due to strong bearish confluence.")
+            place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
+                        reason_to_open="Bearish confluence (Aggressive)", 
+                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                        support_4h=support_4h, resistance_4h=resistance_4h)
+            return True
+    
     else:
-        return False
+        entry_candle_close = df['close'].iloc[-2]
+        entry_candle_rsi = df['rsi'].iloc[-2]
+        entry_candle_volume = df['volume'].iloc[-2]
+        price_sma = df['price_sma_50'].iloc[-2]
+        volume_sma = df['volume_sma_20'].iloc[-2]
+        confirmation_candle_close = df['close'].iloc[-1]
+
+        price_below_sma = entry_candle_close < price_sma
+        rsi_is_bearish = entry_candle_rsi < 50 and entry_candle_rsi > 25
+        volume_is_strong = entry_candle_volume > volume_sma
+        stochastic_signal = (
+            stoch_k.iloc[-2] < OVERBOUGHT and
+            stoch_k.iloc[-3] >= OVERBOUGHT and
+            stoch_k.iloc[-2] < stoch_d.iloc[-2]
+        )
+        funding_rate_is_healthy = funding_rate > -0.0004
+        confirmation_is_bearish = confirmation_candle_close < entry_candle_close
+
+        if (stochastic_signal and price_below_sma and rsi_is_bearish and 
+            volume_is_strong and funding_rate_is_healthy and confirmation_is_bearish):
+
+            print(f"Placing SAFE order for {symbol} due to strong bearish confluence with confirmation.")
+            place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
+                        reason_to_open="Bearish confluence (Safe)", 
+                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                        support_4h=support_4h, resistance_4h=resistance_4h)
+            return True
+
+    return False

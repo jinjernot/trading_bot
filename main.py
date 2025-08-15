@@ -21,20 +21,26 @@ MAX_CONSECUTIVE_LOSSES = 3
 COOL_DOWN_PERIOD_SECONDS = 3600 # 1 hour
 
 # --- Timeframe Settings ---
-SHORT_TERM_INTERVAL = '15m'
-LONG_TERM_INTERVAL = '4h'
+EXECUTION_TIMEFRAME = '15m'
+INTERMEDIATE_TIMEFRAME = '4h'
+PRIMARY_TIMEFRAME = '1d'
 
 async def process_symbol(symbol):
     
     try:
-        df_15m, support_15m, resistance_15m, df_4h, support_4h, resistance_4h, stoch_k_4h, stoch_d_4h = await asyncio.to_thread(
-            fetch_multi_timeframe_data, symbol, SHORT_TERM_INTERVAL, LONG_TERM_INTERVAL
+        df_15m, support_15m, resistance_15m, \
+        df_4h, support_4h, resistance_4h, stoch_k_4h, stoch_d_4h, \
+        df_1d = await asyncio.to_thread(
+            fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
         )
         
-        long_term_trend = detect_trend(df_4h)
-        if VERBOSE_LOGGING:
-            print(f"Long-term trend for {symbol} on {LONG_TERM_INTERVAL} chart: {long_term_trend}")
+        primary_trend = detect_trend(df_1d)
+        intermediate_trend = detect_trend(df_4h)
         
+        if VERBOSE_LOGGING:
+            print(f"Primary Trend (1D) for {symbol}: {primary_trend}")
+            print(f"Intermediate Trend (4h) for {symbol}: {intermediate_trend}")
+
         df_15m = add_price_sma(df_15m, period=50)
         df_15m = add_volume_sma(df_15m, period=20)
         df_15m = add_short_term_sma(df_15m, period=9)
@@ -46,13 +52,6 @@ async def process_symbol(symbol):
         atr_value = df_15m['atr'].iloc[-1]
         
         last_close = df_15m['close'].iloc[-1]
-        atr_percentage = (atr_value / last_close) * 100
-        MIN_VOLATILITY = 0.2
-        MAX_VOLATILITY = 2.0
-        if not (MIN_VOLATILITY < atr_percentage < MAX_VOLATILITY):
-            if VERBOSE_LOGGING:
-                print(f"Skipping {symbol}: Volatility ({atr_percentage:.2f}%) is outside the optimal range.")
-            return
         
         position, roi, unrealized_profit, margin_used, entry_price = get_position(symbol)
         usdt_balance = get_usdt_balance()
@@ -68,32 +67,6 @@ async def process_symbol(symbol):
             if VERBOSE_LOGGING:
                 print(f"Reset breakeven flag for closed position {symbol}.")
 
-        adx_value = df_15m['ADX'].iloc[-1]
-        last_volume = df_15m['volume'].iloc[-1]
-        volume_sma = df_15m['volume_sma_20'].iloc[-1]
-        
-        if adx_value < 20 and last_volume < volume_sma:
-            if VERBOSE_LOGGING:
-                print(f"Skipping {symbol}: Market is too quiet (ADX: {adx_value:.2f}, Volume is below average).")
-            return
-
-        bb_upper = df_15m['BB_Upper'].iloc[-1]
-        bb_lower = df_15m['BB_Lower'].iloc[-1]
-        bb_mid = df_15m['BB_Mid'].iloc[-1]
-        bb_width = ((bb_upper - bb_lower) / bb_mid) * 100
-        MIN_BB_WIDTH = 1.5
-        
-        if bb_width < MIN_BB_WIDTH:
-            if VERBOSE_LOGGING:
-                print(f"Skipping {symbol}: Market is too choppy (Bollinger Band Width: {bb_width:.2f}%).")
-            return
-        
-        if (long_term_trend == 'uptrend' and funding_rate > 0.001) or \
-           (long_term_trend == 'downtrend' and funding_rate < -0.001):
-            if VERBOSE_LOGGING:
-                print(f"Skipping {symbol}: Unfavorable funding rate ({funding_rate:.4f}) for the current trend.")
-            return
-
         if position > 0:
             await close_position_long(symbol, position, roi, df_15m, stoch_k_15m, resistance_15m)
         elif position < 0:
@@ -103,39 +76,37 @@ async def process_symbol(symbol):
             return
 
         if position == 0:
-            trade_opened = False
-            
             stoch_4h_oversold = stoch_k_4h.iloc[-1] < OVERSOLD
             stoch_4h_overbought = stoch_k_4h.iloc[-1] > OVERBOUGHT
             
-            # --- NEW: Get 4-Hour Moving Average ---
             sma_4h = df_4h['price_sma_50'].iloc[-1]
             price_above_4h_sma = last_close > sma_4h
             price_below_4h_sma = last_close < sma_4h
             
-            # Override 1: LONG reversal
-            if long_term_trend == 'downtrend' and stoch_4h_oversold:
-                if VERBOSE_LOGGING:
-                    print(f"OVERRIDE: 4h trend is DOWN but Stoch is OVERSOLD. Prioritizing LONG.")
-                trade_opened = await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+            # --- MODIFIED: Restructured logic to be mutually exclusive ---
             
-            # Override 2: SHORT reversal
-            elif long_term_trend == 'uptrend' and stoch_4h_overbought:
+            # --- Step 1: Check for high-probability override conditions first ---
+            if (intermediate_trend == 'downtrend' and stoch_4h_oversold):
                 if VERBOSE_LOGGING:
-                    print(f"OVERRIDE: 4h trend is UP but Stoch is OVERBOUGHT. Prioritizing SHORT.")
-                trade_opened = await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+                    print(f"OVERRIDE: 4h trend is DOWN but Stoch is OVERSOLD. ONLY looking for LONG reversal for {symbol}.")
+                await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
             
-            if not trade_opened:
-                # --- MODIFIED: Added 4h SMA check to trend-following logic ---
-                if long_term_trend == 'uptrend' and price_above_4h_sma:
+            elif (intermediate_trend == 'uptrend' and stoch_4h_overbought):
+                if VERBOSE_LOGGING:
+                    print(f"OVERRIDE: 4h trend is UP but Stoch is OVERBOUGHT. ONLY looking for SHORT reversal for {symbol}.")
+                await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+            
+            # --- Step 2: If no override, proceed to standard trend-following logic ---
+            else:
+                if primary_trend == 'uptrend' and intermediate_trend == 'uptrend' and price_above_4h_sma:
                     if VERBOSE_LOGGING:
-                        print(f"CONFIRMED UPTREND: 4h trend is UP and price is above 4h SMA for {symbol}.")
-                    trade_opened = await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+                        print(f"CONFIRMED UPTREND (D+4h): Looking for LONG for {symbol}.")
+                    await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
                 
-                elif long_term_trend == 'downtrend' and price_below_4h_sma:
+                elif primary_trend == 'downtrend' and intermediate_trend == 'downtrend' and price_below_4h_sma:
                     if VERBOSE_LOGGING:
-                        print(f"CONFIRMED DOWNTREND: 4h trend is DOWN and price is below 4h SMA for {symbol}.")
-                    trade_opened = await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
+                        print(f"CONFIRMED DOWNTREND (D+4h): Looking for SHORT for {symbol}.")
+                    await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
     
     except Exception as e:
         print(f"Error processing {symbol}: {e}")

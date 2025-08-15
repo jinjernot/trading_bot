@@ -7,6 +7,7 @@ from config.settings import *
 async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
     
     if AGGRESSIVE_ENTRY:
+        # Aggressive Mode Logic
         price_sma = df['price_sma_50'].iloc[-1]
         last_rsi = df['rsi'].iloc[-1]
         last_volume = df['volume'].iloc[-1]
@@ -18,7 +19,6 @@ async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support
             stoch_k.iloc[-2] <= OVERSOLD and
             stoch_k.iloc[-1] > stoch_d.iloc[-1]
         )
-        
         price_above_sma = last_close > price_sma
         rsi_is_bullish = last_rsi > 50 and last_rsi < 75
         volume_is_strong = last_volume > volume_sma
@@ -28,13 +28,12 @@ async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support
             volume_is_strong and funding_rate_is_healthy):
             
             print(f"Placing AGGRESSIVE order for {symbol} due to strong bullish confluence.")
-            place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
-                        reason_to_open="Bullish confluence (Aggressive)", 
-                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
-                        support_4h=support_4h, resistance_4h=resistance_4h)
-            return True
-
+            return await place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
+                                     reason_to_open="Bullish confluence (Aggressive)", 
+                                     stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                                     support_4h=support_4h, resistance_4h=resistance_4h)
     else:
+        # Safe Mode Logic
         entry_candle_close = df['close'].iloc[-2]
         entry_candle_rsi = df['rsi'].iloc[-2]
         entry_candle_volume = df['volume'].iloc[-2]
@@ -57,17 +56,17 @@ async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support
             volume_is_strong and funding_rate_is_healthy and confirmation_is_bullish):
             
             print(f"Placing SAFE order for {symbol} due to strong bullish confluence with confirmation.")
-            place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
-                        reason_to_open="Bullish confluence (Safe)", 
-                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
-                        support_4h=support_4h, resistance_4h=resistance_4h)
-            return True
+            return await place_order(symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance, 
+                                     reason_to_open="Bullish confluence (Safe)", 
+                                     stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                                     support_4h=support_4h, resistance_4h=resistance_4h)
             
     return False
 
 async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
 
     if AGGRESSIVE_ENTRY:
+        # Aggressive Mode Logic
         price_sma = df['price_sma_50'].iloc[-1]
         last_rsi = df['rsi'].iloc[-1]
         last_volume = df['volume'].iloc[-1]
@@ -79,7 +78,6 @@ async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, suppor
             stoch_k.iloc[-2] >= OVERBOUGHT and
             stoch_k.iloc[-1] < stoch_d.iloc[-1]
         )
-        
         price_below_sma = last_close < price_sma
         rsi_is_bearish = last_rsi < 50 and last_rsi > 25
         volume_is_strong = last_volume > volume_sma
@@ -89,13 +87,13 @@ async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, suppor
             volume_is_strong and funding_rate_is_healthy):
 
             print(f"Placing AGGRESSIVE order for {symbol} due to strong bearish confluence.")
-            place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
-                        reason_to_open="Bearish confluence (Aggressive)", 
-                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
-                        support_4h=support_4h, resistance_4h=resistance_4h)
-            return True
+            return await place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
+                                     reason_to_open="Bearish confluence (Aggressive)", 
+                                     stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                                     support_4h=support_4h, resistance_4h=resistance_4h)
     
     else:
+        # Safe Mode Logic
         entry_candle_close = df['close'].iloc[-2]
         entry_candle_rsi = df['rsi'].iloc[-2]
         entry_candle_volume = df['volume'].iloc[-2]
@@ -118,10 +116,9 @@ async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, suppor
             volume_is_strong and funding_rate_is_healthy and confirmation_is_bearish):
 
             print(f"Placing SAFE order for {symbol} due to strong bearish confluence with confirmation.")
-            place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
-                        reason_to_open="Bearish confluence (Safe)", 
-                        stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
-                        support_4h=support_4h, resistance_4h=resistance_4h)
-            return True
+            return await place_order(symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance, 
+                                     reason_to_open="Bearish confluence (Safe)", 
+                                     stop_loss_atr_multiplier=1.5, atr_value=atr_value, df=df,
+                                     support_4h=support_4h, resistance_4h=resistance_4h)
 
     return False

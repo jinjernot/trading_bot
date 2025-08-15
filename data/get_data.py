@@ -4,24 +4,59 @@ from binance.client import Client
 from config.settings import *
 import numpy as np
 from scipy.signal import argrelextrema
+import time
 
 from data.indicators import calculate_stoch, add_price_sma, PERIOD, K, D
+from src.state_manager import bot_state
 
 client = Client(API_KEY, API_SECRET)
 
-def fetch_multi_timeframe_data(symbol, short_interval, long_interval):
+# --- MODIFIED: Implemented Caching Logic ---
+def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interval):
+    current_time = time.time()
+    
+    # Define cache duration in seconds
+    CACHE_DURATION_MID = 1800  # 30 minutes for 4h data
+    CACHE_DURATION_LONG = 14400 # 4 hours for 1d data
+
+    # --- Fetch Short-Term Data (Always) ---
     if VERBOSE_LOGGING:
-        print(f"Fetching multi-timeframe data for {symbol}: {short_interval} and {long_interval}")
-    
+        print(f"Fetching 15m data for {symbol}...")
     df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='100')
-    df_long, support_long, resistance_long = fetch_klines(symbol, long_interval, lookback='100')
-    
-    stoch_k_long, stoch_d_long = calculate_stoch(df_long['high'], df_long['low'], df_long['close'], PERIOD, K, D)
-    
-    # --- NEW: Calculate 50-period SMA for the long-term timeframe ---
-    df_long = add_price_sma(df_long, period=50)
-    
-    return df_short, support_short, resistance_short, df_long, support_long, resistance_long, stoch_k_long, stoch_d_long
+
+    # --- Fetch Mid-Term (4h) Data (from Cache or API) ---
+    if (symbol not in bot_state.last_fetch_time_mid or \
+        (current_time - bot_state.last_fetch_time_mid[symbol]) > CACHE_DURATION_MID):
+        if VERBOSE_LOGGING:
+            print(f"Cache expired. Fetching fresh 4h data for {symbol}...")
+        df_mid, support_mid, resistance_mid = fetch_klines(symbol, mid_interval, lookback='100')
+        stoch_k_mid, stoch_d_mid = calculate_stoch(df_mid['high'], df_mid['low'], df_mid['close'], PERIOD, K, D)
+        df_mid = add_price_sma(df_mid, period=50)
+        # Store in cache
+        bot_state.cached_data_mid[symbol] = (df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid)
+        bot_state.last_fetch_time_mid[symbol] = current_time
+    else:
+        if VERBOSE_LOGGING:
+            print(f"Using cached 4h data for {symbol}.")
+        # Retrieve from cache
+        df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid = bot_state.cached_data_mid[symbol]
+
+    # --- Fetch Long-Term (1d) Data (from Cache or API) ---
+    if (symbol not in bot_state.last_fetch_time_long or \
+        (current_time - bot_state.last_fetch_time_long[symbol]) > CACHE_DURATION_LONG):
+        if VERBOSE_LOGGING:
+            print(f"Cache expired. Fetching fresh 1d data for {symbol}...")
+        df_long, _, _ = fetch_klines(symbol, long_interval, lookback='100')
+        # Store in cache
+        bot_state.cached_data_long[symbol] = df_long
+        bot_state.last_fetch_time_long[symbol] = current_time
+    else:
+        if VERBOSE_LOGGING:
+            print(f"Using cached 1d data for {symbol}.")
+        # Retrieve from cache
+        df_long = bot_state.cached_data_long[symbol]
+
+    return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long
 
 def get_symbol_info(symbol):
     info = client.futures_exchange_info()

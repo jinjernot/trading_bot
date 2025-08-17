@@ -1,5 +1,5 @@
 from src.close_position import *
-from src.open_position_copy import *
+from src.open_position import *
 from src.trade import *
   
 from data.get_data import *
@@ -7,7 +7,6 @@ from data.indicators import *
 
 from data.indicators import add_short_term_sma
 
-from src.telegram_bot import *
 from config.settings import *
 from config.symbols import symbols
 from src.state_manager import bot_state
@@ -25,6 +24,9 @@ EXECUTION_TIMEFRAME = '15m'
 INTERMEDIATE_TIMEFRAME = '4h'
 PRIMARY_TIMEFRAME = '1d'
 
+# --- NEW: Trailing Stop Global Settings ---
+TRAIL_STOP_ACTIVATE_ROI = 2.0 # ROI needed to activate the trailing stop
+
 async def process_symbol(symbol):
     
     try:
@@ -41,6 +43,7 @@ async def process_symbol(symbol):
             print(f"Primary Trend (1D) for {symbol}: {primary_trend}")
             print(f"Intermediate Trend (4h) for {symbol}: {intermediate_trend}")
 
+        # --- Indicator Calculations ---
         df_15m = add_price_sma(df_15m, period=50)
         df_15m = add_volume_sma(df_15m, period=20)
         df_15m = add_short_term_sma(df_15m, period=9)
@@ -53,20 +56,26 @@ async def process_symbol(symbol):
         
         last_close = df_15m['close'].iloc[-1]
         
+        # --- Position & Account Info ---
         position, roi, unrealized_profit, margin_used, entry_price = get_position(symbol)
         usdt_balance = get_usdt_balance()
         funding_rate = get_funding_rate(symbol)
         
+        # --- Breakeven Logic ---
         if position != 0 and roi >= BREAKEVEN_ROI_TARGET and not bot_state.breakeven_triggered.get(symbol):
             trade_side = SIDE_BUY if position > 0 else SIDE_SELL
             if await move_stop_to_breakeven(symbol, entry_price, trade_side):
                 bot_state.breakeven_triggered[symbol] = True
         
-        if position == 0 and bot_state.breakeven_triggered.get(symbol):
-            del bot_state.breakeven_triggered[symbol]
+        if position == 0:
+            if bot_state.breakeven_triggered.get(symbol):
+                del bot_state.breakeven_triggered[symbol]
+            if bot_state.trailing_stop_activated.get(symbol):
+                del bot_state.trailing_stop_activated[symbol]
             if VERBOSE_LOGGING:
-                print(f"Reset breakeven flag for closed position {symbol}.")
+                print(f"Reset flags for closed position {symbol}.")
 
+        # --- Position Management (Closing) ---
         if position > 0:
             await close_position_long(symbol, position, roi, df_15m, stoch_k_15m, resistance_15m)
         elif position < 0:
@@ -75,42 +84,57 @@ async def process_symbol(symbol):
         if bot_state.trading_paused:
             return
 
+        # --- Position Management (Opening) ---
         if position == 0:
-            stoch_4h_oversold = stoch_k_4h.iloc[-1] < OVERSOLD
-            stoch_4h_overbought = stoch_k_4h.iloc[-1] > OVERBOUGHT
-            
             sma_4h = df_4h['price_sma_50'].iloc[-1]
             price_above_4h_sma = last_close > sma_4h
             price_below_4h_sma = last_close < sma_4h
             
-            # --- MODIFIED: Restructured logic to be mutually exclusive ---
-            
-            # --- Step 1: Check for high-probability override conditions first ---
-            if (intermediate_trend == 'downtrend' and stoch_4h_oversold):
+            if primary_trend == 'uptrend' and intermediate_trend == 'uptrend' and price_above_4h_sma:
                 if VERBOSE_LOGGING:
-                    print(f"OVERRIDE: 4h trend is DOWN but Stoch is OVERSOLD. ONLY looking for LONG reversal for {symbol}.")
+                    print(f"CONFIRMED UPTREND (D+4h): Looking for LONG for {symbol}.")
                 await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
             
-            elif (intermediate_trend == 'uptrend' and stoch_4h_overbought):
+            elif primary_trend == 'downtrend' and intermediate_trend == 'downtrend' and price_below_4h_sma:
                 if VERBOSE_LOGGING:
-                    print(f"OVERRIDE: 4h trend is UP but Stoch is OVERBOUGHT. ONLY looking for SHORT reversal for {symbol}.")
+                    print(f"CONFIRMED DOWNTREND (D+4h): Looking for SHORT for {symbol}.")
                 await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
-            
-            # --- Step 2: If no override, proceed to standard trend-following logic ---
-            else:
-                if primary_trend == 'uptrend' and intermediate_trend == 'uptrend' and price_above_4h_sma:
-                    if VERBOSE_LOGGING:
-                        print(f"CONFIRMED UPTREND (D+4h): Looking for LONG for {symbol}.")
-                    await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
-                
-                elif primary_trend == 'downtrend' and intermediate_trend == 'downtrend' and price_below_4h_sma:
-                    if VERBOSE_LOGGING:
-                        print(f"CONFIRMED DOWNTREND (D+4h): Looking for SHORT for {symbol}.")
-                    await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
     
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
         await asyncio.sleep(1)
+
+async def manage_active_trades(active_positions):
+    """
+    NEW: Loop through active positions to manage trailing stops.
+    """
+    if not active_positions:
+        return
+
+    print(f"\n--- Managing {len(active_positions)} Active Trade(s) ---")
+    for position_obj in active_positions:
+        symbol = position_obj['symbol']
+        roi = float(position_obj.get('unrealizedProfit', 0)) / (float(position_obj.get('initialMargin', 1))) * 100
+        
+        # --- Activate Trailing Stop ---
+        if roi >= TRAIL_STOP_ACTIVATE_ROI and not bot_state.trailing_stop_activated.get(symbol):
+            print(f"✅ Activating Trailing Stop for {symbol} (ROI: {roi:.2f}%)")
+            bot_state.trailing_stop_activated[symbol] = True
+            # On first activation, we might just move to breakeven if not already done
+            if not bot_state.breakeven_triggered.get(symbol):
+                 trade_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
+                 await move_stop_to_breakeven(symbol, float(position_obj['entryPrice']), trade_side)
+                 bot_state.breakeven_triggered[symbol] = True
+
+        # --- Update Active Trailing Stop ---
+        if bot_state.trailing_stop_activated.get(symbol):
+            df_15m, _, _, _, _, _, _, _, _ = await asyncio.to_thread(
+                fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
+            )
+            df_15m = calculate_atr(df_15m)
+            atr_value = df_15m['atr'].iloc[-1]
+            await manage_trailing_stop(symbol, position_obj, atr_value)
+
 
 async def main():
     pause_until = 0
@@ -134,14 +158,19 @@ async def main():
         try:
             positions = client.futures_position_information()
             active_positions = [p for p in positions if float(p.get('positionAmt', 0)) != 0]
+
+            # --- NEW: Manage existing trades first ---
+            await manage_active_trades(active_positions)
             
+            # --- Then, look for new trades ---
             if len(active_positions) >= MAX_CONCURRENT_TRADES:
                 print(f"Max concurrent trade limit ({MAX_CONCURRENT_TRADES}) reached. Skipping new trades for this cycle.")
             else:
-                tasks = [process_symbol(symbol) for symbol in symbols]
+                tasks = [process_symbol(symbol) for symbol in symbols if symbol not in [p['symbol'] for p in active_positions]]
                 await asyncio.gather(*tasks)
+
         except Exception as e:
-            print(f"Error fetching position information: {e}")
+            print(f"Error in main loop: {e}")
 
         print("\n--- Trading cycle complete. Waiting for 60 seconds... ---")
         await asyncio.sleep(60)

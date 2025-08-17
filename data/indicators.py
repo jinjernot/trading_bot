@@ -2,6 +2,7 @@ from binance.client import Client
 from config.secrets import API_KEY, API_SECRET
 import numpy as np
 import pandas as pd
+from config.settings import VERBOSE_LOGGING
 
 client = Client(API_KEY, API_SECRET)
 
@@ -10,6 +11,23 @@ K = 3
 D = 3
 OVERSOLD = 20
 OVERBOUGHT = 80
+
+def calculate_wma(series, period):
+    """
+    Calculates the Weighted Moving Average.
+    """
+    weights = np.arange(1, period + 1)
+    return series.rolling(period).apply(lambda prices: np.dot(prices, weights) / weights.sum(), raw=True)
+
+def calculate_hull_moving_average(df, period=14):
+    """
+    Calculates the Hull Moving Average (HMA).
+    """
+    df[f'hma_{period}'] = calculate_wma(
+        2 * calculate_wma(df['close'], period // 2) - calculate_wma(df['close'], period),
+        int(np.sqrt(period))
+    )
+    return df
 
 def calculate_stoch(high, low, close, PERIOD, K, D):
     lowest_low = low.rolling(PERIOD).min()
@@ -73,3 +91,17 @@ def calculate_bollinger_bands(df, period=20, std_dev=2):
     df['BB_Upper'] = df['BB_Mid'] + (df['BB_Std'] * std_dev)
     df['BB_Lower'] = df['BB_Mid'] - (df['BB_Std'] * std_dev)
     return df
+
+def is_market_volatile(df, atr_period=14, atr_threshold=0.05):
+    """
+    Checks if the market is volatile based on the ATR percentage.
+    """
+    if 'atr' not in df.columns:
+        df = calculate_atr(df, period=atr_period)
+    
+    atr_percentage = (df['atr'].iloc[-1] / df['close'].iloc[-1]) * 100
+    
+    if VERBOSE_LOGGING:
+        print(f"ATR as percentage of price: {atr_percentage:.2f}%")
+        
+    return atr_percentage > atr_threshold

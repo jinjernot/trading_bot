@@ -3,10 +3,12 @@ from src.trade import place_order
 from data.indicators import *
 from config.settings import *
 
+
 async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
     
     adx_value = df['ADX'].iloc[-1]
-    if adx_value < 20: # ADX filter to avoid choppy markets
+
+    if adx_value < 5:
         if VERBOSE_LOGGING:
             print(f"Skipping LONG for {symbol}: ADX is {adx_value:.2f}, indicating weak trend.")
         return False
@@ -58,7 +60,7 @@ async def open_position_long(symbol, df, stoch_k, stoch_d, usdt_balance, support
 async def open_position_short(symbol, df, stoch_k, stoch_d, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
 
     adx_value = df['ADX'].iloc[-1]
-    if adx_value < 20: # ADX filter to avoid choppy markets
+    if adx_value < 5:
         if VERBOSE_LOGGING:
             print(f"Skipping SHORT for {symbol}: ADX is {adx_value:.2f}, indicating weak trend.")
         return False

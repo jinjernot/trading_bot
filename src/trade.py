@@ -137,7 +137,7 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
     if adx_value > 25: # Strong trend
         RISK_PER_TRADE = 0.03 # Risk 3%
         print(f"ADX is {adx_value:.2f} (Strong Trend). Using HIGH risk (3%).")
-    elif adx_value > 20: # Healthy trend
+    elif adx_value > 18: # Healthy trend
         RISK_PER_TRADE = 0.02 # Risk 2%
         print(f"ADX is {adx_value:.2f} (Healthy Trend). Using NORMAL risk (2%).")
     else: # Weak or no trend

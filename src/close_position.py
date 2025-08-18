@@ -17,17 +17,19 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     reason = None
     last_close = df['close'].iloc[-1]
 
-    # Confluence Exit: Stochastic crossover in the overbought zone
-    stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
-    if roi > 0 and stoch_k.iloc[-1] > OVERBOUGHT and stoch_crossed_down:
-        reason = f"Profit take: Stochastic crossed down in overbought zone ({stoch_k.iloc[-1]:.2f})."
+    if roi > 0:
+        stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
+        if stoch_k.iloc[-1] > OVERBOUGHT and stoch_crossed_down:
+            reason = f"Profit take: Stochastic crossed down in overbought zone ({stoch_k.iloc[-1]:.2f})."
 
-    # Trailing Stop-Loss Logic
+        bearish_candlestick_signal = df['bearish_pattern'].iloc[-1] == 1
+        if bearish_candlestick_signal and not reason:
+            reason = f"Profit take: Bearish reversal pattern detected."
+
     if symbol in bot_state.trailing_stop_prices:
         current_trailing_stop = bot_state.trailing_stop_prices[symbol]
         new_trailing_stop = last_close - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
         
-        # The trailing stop only moves up
         if new_trailing_stop > current_trailing_stop:
             bot_state.trailing_stop_prices[symbol] = new_trailing_stop
             if VERBOSE_LOGGING:
@@ -36,7 +38,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         if last_close < current_trailing_stop:
             reason = f"Trailing stop-loss hit at {current_trailing_stop:.4f}."
 
-    elif roi > 0: # If no trailing stop is set yet, set the initial one
+    elif roi > 0:
         initial_trailing_stop = last_close - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
         bot_state.trailing_stop_prices[symbol] = initial_trailing_stop
         if VERBOSE_LOGGING:
@@ -48,7 +50,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_SELL, abs(position), reason)
         if symbol in bot_state.trailing_stop_prices:
-            del bot_state.trailing_stop_prices[symbol] # Clean up the state
+            del bot_state.trailing_stop_prices[symbol]
         return True
 
     return False
@@ -57,17 +59,19 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     reason = None
     last_close = df['close'].iloc[-1]
 
-    # Confluence Exit: Stochastic crossover in the oversold zone
-    stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
-    if roi > 0 and stoch_k.iloc[-1] < OVERSOLD and stoch_crossed_up:
-        reason = f"Profit take: Stochastic crossed up in oversold zone ({stoch_k.iloc[-1]:.2f})."
+    if roi > 0:
+        stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
+        if stoch_k.iloc[-1] < OVERSOLD and stoch_crossed_up:
+            reason = f"Profit take: Stochastic crossed up in oversold zone ({stoch_k.iloc[-1]:.2f})."
+        
+        bullish_candlestick_signal = df['bullish_pattern'].iloc[-1] == 1
+        if bullish_candlestick_signal and not reason:
+            reason = f"Profit take: Bullish reversal pattern detected."
     
-    # Trailing Stop-Loss Logic
     if symbol in bot_state.trailing_stop_prices:
         current_trailing_stop = bot_state.trailing_stop_prices[symbol]
         new_trailing_stop = last_close + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
         
-        # The trailing stop only moves down
         if new_trailing_stop < current_trailing_stop:
             bot_state.trailing_stop_prices[symbol] = new_trailing_stop
             if VERBOSE_LOGGING:
@@ -76,7 +80,7 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         if last_close > current_trailing_stop:
             reason = f"Trailing stop-loss hit at {current_trailing_stop:.4f}."
             
-    elif roi > 0: # If no trailing stop is set yet, set the initial one
+    elif roi > 0:
         initial_trailing_stop = last_close + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
         bot_state.trailing_stop_prices[symbol] = initial_trailing_stop
         if VERBOSE_LOGGING:
@@ -88,7 +92,7 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_BUY, abs(position), reason)
         if symbol in bot_state.trailing_stop_prices:
-            del bot_state.trailing_stop_prices[symbol] # Clean up the state
+            del bot_state.trailing_stop_prices[symbol]
         return True
         
     return False

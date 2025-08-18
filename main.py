@@ -90,14 +90,16 @@ async def process_symbol(symbol):
             price_above_4h_sma = last_close > sma_4h
             price_below_4h_sma = last_close < sma_4h
             
-            if primary_trend == 'uptrend' and intermediate_trend == 'uptrend' and price_above_4h_sma:
+            # --- MODIFICATION: Removed primary_trend check for more frequent signals ---
+            if intermediate_trend == 'uptrend' and price_above_4h_sma:
                 if VERBOSE_LOGGING:
-                    print(f"CONFIRMED UPTREND (D+4h): Looking for LONG for {symbol}.")
+                    print(f"CONFIRMED UPTREND (4h): Looking for LONG for {symbol}.")
                 await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
             
-            elif primary_trend == 'downtrend' and intermediate_trend == 'downtrend' and price_below_4h_sma:
+            # --- MODIFICATION: Removed primary_trend check for more frequent signals ---
+            elif intermediate_trend == 'downtrend' and price_below_4h_sma:
                 if VERBOSE_LOGGING:
-                    print(f"CONFIRMED DOWNTREND (D+4h): Looking for SHORT for {symbol}.")
+                    print(f"CONFIRMED DOWNTREND (4h): Looking for SHORT for {symbol}.")
                 await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, support_15m, resistance_15m, atr_value, funding_rate, support_4h=support_4h, resistance_4h=resistance_4h)
     
     except Exception as e:

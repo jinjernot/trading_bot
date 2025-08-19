@@ -17,6 +17,8 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     reason = None
     last_close = df['close'].iloc[-1]
 
+    # --- REMOVED: Bollinger Band take-profit signal has been removed ---
+
     if roi > 0:
         stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
         if stoch_k.iloc[-1] > OVERBOUGHT and stoch_crossed_down:
@@ -26,31 +28,11 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         if bearish_candlestick_signal and not reason:
             reason = f"Profit take: Bearish reversal pattern detected."
 
-    if symbol in bot_state.trailing_stop_prices:
-        current_trailing_stop = bot_state.trailing_stop_prices[symbol]
-        new_trailing_stop = last_close - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        
-        if new_trailing_stop > current_trailing_stop:
-            bot_state.trailing_stop_prices[symbol] = new_trailing_stop
-            if VERBOSE_LOGGING:
-                print(f"Trailing stop for {symbol} moved up to {new_trailing_stop:.4f}")
-        
-        if last_close < current_trailing_stop:
-            reason = f"Trailing stop-loss hit at {current_trailing_stop:.4f}."
-
-    elif roi > 0:
-        initial_trailing_stop = last_close - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        bot_state.trailing_stop_prices[symbol] = initial_trailing_stop
-        if VERBOSE_LOGGING:
-            print(f"Initial trailing stop for {symbol} set to {initial_trailing_stop:.4f}")
-
     if reason:
         print(f"Closing long position for {symbol}. Reason: {reason}")
         update_loss_counter(roi)
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_SELL, abs(position), reason)
-        if symbol in bot_state.trailing_stop_prices:
-            del bot_state.trailing_stop_prices[symbol]
         return True
 
     return False
@@ -58,6 +40,8 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
 async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, support, atr_value, entry_price):
     reason = None
     last_close = df['close'].iloc[-1]
+
+    # --- REMOVED: Bollinger Band take-profit signal has been removed ---
 
     if roi > 0:
         stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
@@ -67,32 +51,12 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         bullish_candlestick_signal = df['bullish_pattern'].iloc[-1] == 1
         if bullish_candlestick_signal and not reason:
             reason = f"Profit take: Bullish reversal pattern detected."
-    
-    if symbol in bot_state.trailing_stop_prices:
-        current_trailing_stop = bot_state.trailing_stop_prices[symbol]
-        new_trailing_stop = last_close + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        
-        if new_trailing_stop < current_trailing_stop:
-            bot_state.trailing_stop_prices[symbol] = new_trailing_stop
-            if VERBOSE_LOGGING:
-                print(f"Trailing stop for {symbol} moved down to {new_trailing_stop:.4f}")
-
-        if last_close > current_trailing_stop:
-            reason = f"Trailing stop-loss hit at {current_trailing_stop:.4f}."
-            
-    elif roi > 0:
-        initial_trailing_stop = last_close + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        bot_state.trailing_stop_prices[symbol] = initial_trailing_stop
-        if VERBOSE_LOGGING:
-            print(f"Initial trailing stop for {symbol} set to {initial_trailing_stop:.4f}")
 
     if reason:
         print(f"Closing short position for {symbol}. Reason: {reason}")
         update_loss_counter(roi)
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_BUY, abs(position), reason)
-        if symbol in bot_state.trailing_stop_prices:
-            del bot_state.trailing_stop_prices[symbol]
         return True
         
     return False

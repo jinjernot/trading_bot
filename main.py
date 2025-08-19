@@ -15,7 +15,7 @@ import asyncio
 import time
 
 # --- Risk Management Settings ---
-MAX_CONCURRENT_TRADES = 4
+MAX_CONCURRENT_TRADES = 10
 MAX_CONSECUTIVE_LOSSES = 3
 COOL_DOWN_PERIOD_SECONDS = 3600 # 1 hour
 

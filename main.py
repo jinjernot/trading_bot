@@ -5,7 +5,7 @@ from src.trade import *
 from data.get_data import *
 from data.indicators import *
 
-from data.indicators import add_short_term_sma
+from data.indicators import add_short_term_sma, calculate_hull_moving_average
 
 from config.settings import *
 from config.symbols import symbols
@@ -52,6 +52,7 @@ async def process_symbol(symbol):
         df_15m = calculate_atr(df_15m)
         df_15m = calculate_adx(df_15m)
         df_15m = calculate_bollinger_bands(df_15m)
+        df_15m = calculate_hull_moving_average(df_15m, period=14) # HMA calculation added
         atr_value = df_15m['atr'].iloc[-1]
         
         last_close = df_15m['close'].iloc[-1]
@@ -108,7 +109,7 @@ async def process_symbol(symbol):
 
 async def manage_active_trades(active_positions):
     """
-    NEW: Loop through active positions to manage trailing stops.
+    Loop through active positions to manage ATR trailing stops for profitable trades.
     """
     if not active_positions:
         return
@@ -116,27 +117,21 @@ async def manage_active_trades(active_positions):
     print(f"\n--- Managing {len(active_positions)} Active Trade(s) ---")
     for position_obj in active_positions:
         symbol = position_obj['symbol']
-        roi = float(position_obj.get('unrealizedProfit', 0)) / (float(position_obj.get('initialMargin', 1))) * 100
-        
-        # --- Activate Trailing Stop ---
-        if roi >= TRAIL_STOP_ACTIVATE_ROI and not bot_state.trailing_stop_activated.get(symbol):
-            print(f"✅ Activating Trailing Stop for {symbol} (ROI: {roi:.2f}%)")
-            bot_state.trailing_stop_activated[symbol] = True
-            # On first activation, we might just move to breakeven if not already done
-            if not bot_state.breakeven_triggered.get(symbol):
-                 trade_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
-                 await move_stop_to_breakeven(symbol, float(position_obj['entryPrice']), trade_side)
-                 bot_state.breakeven_triggered[symbol] = True
+        unrealized_profit = float(position_obj.get('unrealizedProfit', 0))
 
-        # --- Update Active Trailing Stop ---
-        if bot_state.trailing_stop_activated.get(symbol):
+        # --- Manage ATR Trailing Stop for any profitable trade ---
+        if unrealized_profit > 0:
+            print(f"✅ Position for {symbol} is profitable. Managing ATR trailing stop.")
+            
+            # Fetch the latest data to get the current ATR value
             df_15m, _, _, _, _, _, _, _, _ = await asyncio.to_thread(
                 fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
             )
             df_15m = calculate_atr(df_15m)
             atr_value = df_15m['atr'].iloc[-1]
-            await manage_trailing_stop(symbol, position_obj, atr_value)
-
+            
+            # Call the new ATR trailing stop function
+            await manage_atr_trailing_stop(symbol, position_obj, atr_value)
 
 async def main():
     pause_until = 0

@@ -37,10 +37,10 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
         print(f"Error moving stop-loss to breakeven for {symbol}: {e}")
         return False
 
-# --- NEW: Function to manage the ATR Trailing Stop-Loss ---
-async def manage_trailing_stop(symbol, position_obj, atr_value):
+async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     """
-    Manages the ATR trailing stop for a profitable position.
+    Manages an ATR-based trailing stop for a profitable position.
+    This function is not dependent on a specific ROI to activate.
     """
     position_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
     entry_price = float(position_obj['entryPrice'])
@@ -50,17 +50,22 @@ async def manage_trailing_stop(symbol, position_obj, atr_value):
         return
 
     # --- Trailing Stop Logic ---
+    # This multiplier can be adjusted to make the trail tighter or looser.
     TRAILING_STOP_ATR_MULTIPLIER = 2.5 
     
     if position_side == SIDE_BUY:
+        # For a long position, the stop loss should only move up
         new_stop_price = current_price - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        # Ensure the new stop is above the entry price and higher than any previous stop
+        
+        # We only update the stop loss if the new stop price is higher than the entry price
         if new_stop_price > entry_price:
             await update_stop_loss(symbol, new_stop_price, position_side)
     
     elif position_side == SIDE_SELL:
+        # For a short position, the stop loss should only move down
         new_stop_price = current_price + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        # Ensure the new stop is below the entry price and lower than any previous stop
+        
+        # We only update the stop loss if the new stop price is lower than the entry price
         if new_stop_price < entry_price:
             await update_stop_loss(symbol, new_stop_price, position_side)
 

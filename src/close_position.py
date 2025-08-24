@@ -16,17 +16,22 @@ def update_loss_counter(roi):
 async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resistance, atr_value, entry_price):
     reason = None
     last_close = df['close'].iloc[-1]
+    
+    # --- NEW: Exit based on Market Structure Break ---
+    # Define the lookback period to find the most recent swing low.
+    lookback_period = 10 
+    
+    # Find the lowest low in the recent past (our swing low).
+    recent_swing_low = df['low'].iloc[-lookback_period:-1].min()
 
-    # --- REMOVED: Bollinger Band take-profit signal has been removed ---
+    # If the price closes below this recent swing low, it's a sign the uptrend is broken.
+    if last_close < recent_swing_low:
+        reason = f"Exit Signal: Price broke market structure by closing below the recent swing low of ${recent_swing_low:.4f}."
 
-    if roi > 0:
-        stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
-        if stoch_k.iloc[-1] > OVERBOUGHT and stoch_crossed_down:
-            reason = f"Profit take: Stochastic crossed down in overbought zone ({stoch_k.iloc[-1]:.2f})."
-
-        bearish_candlestick_signal = df['bearish_pattern'].iloc[-1] == 1
-        if bearish_candlestick_signal and not reason:
-            reason = f"Profit take: Bearish reversal pattern detected."
+    # We can still keep the stochastic as a secondary, profit-taking signal for very overextended moves.
+    stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
+    if stoch_k.iloc[-1] > 90 and stoch_crossed_down and not reason: # Using a higher threshold (e.g., 90) for this exit.
+        reason = f"Profit Take: Stochastic crossed down in extreme overbought zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:
         print(f"Closing long position for {symbol}. Reason: {reason}")
@@ -41,16 +46,21 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     reason = None
     last_close = df['close'].iloc[-1]
 
-    # --- REMOVED: Bollinger Band take-profit signal has been removed ---
+    # --- NEW: Exit based on Market Structure Break ---
+    # Define the lookback period to find the most recent swing high.
+    lookback_period = 10
 
-    if roi > 0:
-        stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
-        if stoch_k.iloc[-1] < OVERSOLD and stoch_crossed_up:
-            reason = f"Profit take: Stochastic crossed up in oversold zone ({stoch_k.iloc[-1]:.2f})."
-        
-        bullish_candlestick_signal = df['bullish_pattern'].iloc[-1] == 1
-        if bullish_candlestick_signal and not reason:
-            reason = f"Profit take: Bullish reversal pattern detected."
+    # Find the highest high in the recent past (our swing high).
+    recent_swing_high = df['high'].iloc[-lookback_period:-1].max()
+
+    # If the price closes above this recent swing high, it's a sign the downtrend is broken.
+    if last_close > recent_swing_high:
+        reason = f"Exit Signal: Price broke market structure by closing above the recent swing high of ${recent_swing_high:.4f}."
+
+    # Secondary profit-taking signal for extreme oversold conditions.
+    stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
+    if stoch_k.iloc[-1] < 10 and stoch_crossed_up and not reason: # Using a lower threshold (e.g., 10) for this exit.
+        reason = f"Profit Take: Stochastic crossed up in extreme oversold zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:
         print(f"Closing short position for {symbol}. Reason: {reason}")

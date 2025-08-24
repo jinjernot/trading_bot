@@ -136,9 +136,10 @@ def add_candlestick_patterns(df):
 
     # Consolidate bearish signals and log them
     for pattern in bearish_patterns:
-        if pattern in df.columns and df[pattern].iloc[-1] == -100:
-            df.loc[df.index[-1], 'bearish_pattern'] = 1
-            if VERBOSE_LOGGING:
-                print(f"🕯️ Bearish Pattern Detected: {pattern} on the last candle.")
+        if pattern in bearish_patterns:
+            if pattern in df.columns and df[pattern].iloc[-1] == -100:
+                df.loc[df.index[-1], 'bearish_pattern'] = 1
+                if VERBOSE_LOGGING:
+                    print(f"🕯️ Bearish Pattern Detected: {pattern} on the last candle.")
     
     return df

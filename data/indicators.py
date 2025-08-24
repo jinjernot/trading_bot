@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from config.settings import VERBOSE_LOGGING
 import pandas_ta as ta
+from scipy.signal import find_peaks
 
 client = Client(API_KEY, API_SECRET)
 
@@ -29,6 +30,43 @@ def calculate_hull_moving_average(df, period=14):
         int(np.sqrt(period))
     )
     return df
+
+def find_swing_points_and_fib(df, lookback=50):
+    """
+    Identifies the most recent significant swing low and swing high,
+    then calculates Fibonacci retracement levels.
+    """
+    subset = df.iloc[-lookback:] # Look at the last 50 candles
+
+    # Find peaks (highs) and troughs (lows)
+    high_peaks, _ = find_peaks(subset['high'], distance=5, prominence=0.001)
+    low_troughs, _ = find_peaks(-subset['low'], distance=5, prominence=0.001)
+
+    if len(low_troughs) == 0 or len(high_peaks) == 0:
+        return None, None, None # Not enough data
+
+    # Get the last major swing low and high
+    last_swing_low_idx = subset.index[low_troughs[-1]]
+    last_swing_high_idx = subset.index[high_peaks[-1]]
+
+    # Ensure the swing high came after the swing low to form a valid uptrend impulse
+    if last_swing_high_idx < last_swing_low_idx:
+        return None, None, None
+
+    swing_low_price = df.loc[last_swing_low_idx, 'low']
+    swing_high_price = df.loc[last_swing_high_idx, 'high']
+
+    # Calculate Fibonacci Levels
+    diff = swing_high_price - swing_low_price
+    fib_levels = {
+        '0.236': swing_high_price - diff * 0.236,
+        '0.382': swing_high_price - diff * 0.382,
+        '0.5': swing_high_price - diff * 0.5,
+        '0.618': swing_high_price - diff * 0.618,
+        '0.786': swing_high_price - diff * 0.786,
+    }
+
+    return swing_low_price, swing_high_price, fib_levels
 
 def calculate_stoch(high, low, close, PERIOD, K, D):
     lowest_low = low.rolling(PERIOD).min()
@@ -94,9 +132,6 @@ def calculate_bollinger_bands(df, period=20, std_dev=2):
     return df
 
 def is_market_volatile(df, atr_period=14, atr_threshold=0.05):
-    """
-    Checks if the market is volatile based on the ATR percentage.
-    """
     if 'atr' not in df.columns:
         df = calculate_atr(df, period=atr_period)
     
@@ -108,38 +143,15 @@ def is_market_volatile(df, atr_period=14, atr_threshold=0.05):
     return atr_percentage > atr_threshold
 
 def add_candlestick_patterns(df):
-    """
-    Scans for multiple candlestick patterns using pandas-ta and adds
-    consolidated bullish/bearish signal columns to the DataFrame.
-    """
-    # Scan for all candlestick patterns
     df.ta.cdl_pattern(name="all", append=True)
-
-    bullish_patterns = [
-        'CDL_ENGULFING', 'CDL_HAMMER', 'CDL_MORNINGSTAR',
-        'CDL_PIERCING', 'CDL_3WHITESOLDIERS'
-    ]
-    bearish_patterns = [
-        'CDL_ENGULFING', 'CDL_HANGINGMAN', 'CDL_EVENINGSTAR',
-        'CDL_SHOOTINGSTAR', 'CDL_3BLACKCROWS'
-    ]
-
+    bullish_patterns = ['CDL_ENGULFING', 'CDL_HAMMER', 'CDL_MORNINGSTAR']
+    bearish_patterns = ['CDL_ENGULFING', 'CDL_HANGINGMAN', 'CDL_EVENINGSTAR']
     df['bullish_pattern'] = 0
     df['bearish_pattern'] = 0
-
-    # Consolidate bullish signals and log them
     for pattern in bullish_patterns:
         if pattern in df.columns and df[pattern].iloc[-1] == 100:
             df.loc[df.index[-1], 'bullish_pattern'] = 1
-            if VERBOSE_LOGGING:
-                print(f"🕯️ Bullish Pattern Detected: {pattern} on the last candle.")
-
-    # Consolidate bearish signals and log them
     for pattern in bearish_patterns:
-        if pattern in bearish_patterns:
-            if pattern in df.columns and df[pattern].iloc[-1] == -100:
-                df.loc[df.index[-1], 'bearish_pattern'] = 1
-                if VERBOSE_LOGGING:
-                    print(f"🕯️ Bearish Pattern Detected: {pattern} on the last candle.")
-    
+        if pattern in df.columns and df[pattern].iloc[-1] == -100:
+            df.loc[df.index[-1], 'bearish_pattern'] = 1
     return df

@@ -17,7 +17,6 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     reason = None
     last_close = df['close'].iloc[-1]
     
-    # --- NEW: Exit based on Market Structure Break ---
     # Define the lookback period to find the most recent swing low.
     lookback_period = 10 
     
@@ -46,7 +45,6 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     reason = None
     last_close = df['close'].iloc[-1]
 
-    # --- NEW: Exit based on Market Structure Break ---
     # Define the lookback period to find the most recent swing high.
     lookback_period = 10
 

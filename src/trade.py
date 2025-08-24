@@ -133,12 +133,12 @@ async def cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True):
     except Exception as e:
         print(f"Error canceling open orders for {symbol}: {e}")
 
-# --- MODIFIED: Integrated Dynamic Position Sizing ---
+
 async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, resistance_4h, adx_value, reduce_only=False, stop_loss_atr_multiplier=None, atr_value=None, df=None):
     """
     Places a bracket order with position size dynamically adjusted based on ADX.
     """
-    # --- Dynamic Risk Calculation based on ADX ---
+    
     if adx_value > 25: # Strong trend
         RISK_PER_TRADE = 0.03 # Risk 3%
         print(f"ADX is {adx_value:.2f} (Strong Trend). Using HIGH risk (3%).")

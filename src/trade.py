@@ -6,7 +6,7 @@ import asyncio
 
 from config.paths import LOG_FILE
 from config.secrets import API_KEY, API_SECRET
-from config.settings import VERBOSE_LOGGING
+from config.settings import VERBOSE_LOGGING, TRAILING_STOP_ATR_MULTIPLIER
 
 from data.get_data import get_market_price, round_price, round_quantity, get_usdt_balance, fetch_multi_timeframe_data
 from data.indicators import calculate_atr
@@ -65,26 +65,43 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
 async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     """
     Manages an ATR-based trailing stop for a profitable position.
+    (Corrected Logic)
     """
     position_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
-    entry_price = float(position_obj['entryPrice'])
     current_price = get_market_price(symbol)
-    
+
     if not current_price:
         return
 
-    TRAILING_STOP_ATR_MULTIPLIER = 2.5 
+    # --- Find the current stop-loss order price ---
+    open_orders = client.futures_get_open_orders(symbol=symbol)
+    current_stop_price = None
+    for order in open_orders:
+        if order['type'] == 'STOP_MARKET':
+            current_stop_price = float(order['stopPrice'])
+            break
+    
+    if current_stop_price is None:
+        if VERBOSE_LOGGING:
+            print(f"Could not find an existing stop-loss for {symbol} to trail.")
+        return
     
     if position_side == SIDE_BUY:
         new_stop_price = current_price - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        if new_stop_price > entry_price:
+        # If the newly calculated stop price is higher than the current one, update it.
+        if new_stop_price > current_stop_price:
+            print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
             await update_stop_loss(symbol, new_stop_price, position_side)
     
     elif position_side == SIDE_SELL:
         new_stop_price = current_price + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        if new_stop_price < entry_price:
-            await update_stop_loss(symbol, new_stop_price, position_side)
 
+        # If the newly calculated stop price is lower than the current one, update it.
+        if new_stop_price < current_stop_price:
+            print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
+            await update_stop_loss(symbol, new_stop_price, position_side)
+            
+            
 async def update_stop_loss(symbol, new_stop_price, side):
     """
     Cancels the old stop loss and places a new, updated one.

@@ -33,30 +33,24 @@ def calculate_hull_moving_average(df, period=14):
 
 def find_swing_points_and_fib(df, lookback=50):
     """
-    Identifies the most recent significant swing low and swing high,
-    then calculates Fibonacci retracement levels.
+    Identifies swing points for an UPTREND and calculates Fibonacci retracement levels.
     """
-    subset = df.iloc[-lookback:] # Look at the last 50 candles
-
-    # Find peaks (highs) and troughs (lows)
+    subset = df.iloc[-lookback:]
     high_peaks, _ = find_peaks(subset['high'], distance=5, prominence=0.001)
     low_troughs, _ = find_peaks(-subset['low'], distance=5, prominence=0.001)
 
     if len(low_troughs) == 0 or len(high_peaks) == 0:
-        return None, None, None # Not enough data
+        return None, None, None
 
-    # Get the last major swing low and high
     last_swing_low_idx = subset.index[low_troughs[-1]]
     last_swing_high_idx = subset.index[high_peaks[-1]]
 
-    # Ensure the swing high came after the swing low to form a valid uptrend impulse
     if last_swing_high_idx < last_swing_low_idx:
         return None, None, None
 
     swing_low_price = df.loc[last_swing_low_idx, 'low']
     swing_high_price = df.loc[last_swing_high_idx, 'high']
-
-    # Calculate Fibonacci Levels
+    
     diff = swing_high_price - swing_low_price
     fib_levels = {
         '0.236': swing_high_price - diff * 0.236,
@@ -65,7 +59,36 @@ def find_swing_points_and_fib(df, lookback=50):
         '0.618': swing_high_price - diff * 0.618,
         '0.786': swing_high_price - diff * 0.786,
     }
+    return swing_low_price, swing_high_price, fib_levels
 
+def find_swing_points_and_fib_short(df, lookback=50):
+    """
+    Identifies swing points for a DOWNTREND and calculates Fibonacci retracement levels.
+    """
+    subset = df.iloc[-lookback:]
+    high_peaks, _ = find_peaks(subset['high'], distance=5, prominence=0.001)
+    low_troughs, _ = find_peaks(-subset['low'], distance=5, prominence=0.001)
+
+    if len(low_troughs) == 0 or len(high_peaks) == 0:
+        return None, None, None
+
+    last_swing_low_idx = subset.index[low_troughs[-1]]
+    last_swing_high_idx = subset.index[high_peaks[-1]]
+
+    if last_swing_low_idx < last_swing_high_idx:
+        return None, None, None
+
+    swing_low_price = df.loc[last_swing_low_idx, 'low']
+    swing_high_price = df.loc[last_swing_high_idx, 'high']
+
+    diff = swing_high_price - swing_low_price
+    fib_levels = {
+        '0.236': swing_low_price + diff * 0.236,
+        '0.382': swing_low_price + diff * 0.382,
+        '0.5': swing_low_price + diff * 0.5,
+        '0.618': swing_low_price + diff * 0.618,
+        '0.786': swing_low_price + diff * 0.786,
+    }
     return swing_low_price, swing_high_price, fib_levels
 
 def calculate_stoch(high, low, close, PERIOD, K, D):

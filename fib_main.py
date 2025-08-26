@@ -4,13 +4,13 @@ from data.indicators import *
 from config.settings import *
 from config.symbols import symbols
 from src.state_manager import bot_state
-from src.fib_strategy import check_fib_pullback_entry
+from src.fib_strategy import check_fib_pullback_long_entry, check_fib_retrace_short_entry
 
 import asyncio
 
 async def process_fib_symbol(symbol, all_positions, balance_data):
     """
-    Processes a single symbol for the Fibonacci pullback strategy.
+    Processes a single symbol for both long and short Fibonacci strategies.
     """
     try:
         df_15m, _, _, df_4h, _, _, _, _, _ = await asyncio.to_thread(
@@ -25,7 +25,9 @@ async def process_fib_symbol(symbol, all_positions, balance_data):
         usdt_balance = get_usdt_balance(balance_data)
 
         if position == 0:
-            await check_fib_pullback_entry(symbol, df_15m, df_4h, usdt_balance)
+            long_trade_taken = await check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance)
+            if not long_trade_taken:
+                await check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance)
 
     except Exception as e:
         print(f"Error processing Fibonacci strategy for {symbol}: {e}")
@@ -33,15 +35,14 @@ async def process_fib_symbol(symbol, all_positions, balance_data):
 
 async def fib_bot_main_loop():
     """
-    The main trading loop for the Fibonacci Pullback Bot.
+    The main trading loop for the bidirectional Fibonacci Bot.
     """
-    print("--- 🤖 Starting Fibonacci Pullback Bot (Pure Fib Strategy) ---")
+    print("--- 🤖 Starting Bidirectional Fibonacci Bot ---")
     while not bot_state.trading_paused:
-        print("\n---  Fibonacci Bot: Starting new cycle ---")
+        print("\n--- Fibonacci Bot: Starting new cycle ---")
         
         try:
             all_positions, balance_data = get_all_positions_and_balance()
-            
             active_positions = [p for p in all_positions if float(p.get('positionAmt', 0)) != 0]
 
             await manage_active_trades(active_positions)

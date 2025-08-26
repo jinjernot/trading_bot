@@ -49,6 +49,7 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         breakeven_price = round_price(symbol, entry_price)
         
+        # --- CORRECTED: Added the stopPrice parameter ---
         sl_order = client.futures_create_order(
             symbol=symbol,
             side=stop_loss_side,
@@ -65,7 +66,6 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
 async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     """
     Manages an ATR-based trailing stop for a profitable position.
-    (Corrected Logic)
     """
     position_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
     current_price = get_market_price(symbol)
@@ -73,7 +73,6 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     if not current_price:
         return
 
-    # --- Find the current stop-loss order price ---
     open_orders = client.futures_get_open_orders(symbol=symbol)
     current_stop_price = None
     for order in open_orders:
@@ -88,15 +87,12 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     
     if position_side == SIDE_BUY:
         new_stop_price = current_price - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-        # If the newly calculated stop price is higher than the current one, update it.
         if new_stop_price > current_stop_price:
             print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
             await update_stop_loss(symbol, new_stop_price, position_side)
     
     elif position_side == SIDE_SELL:
         new_stop_price = current_price + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
-
-        # If the newly calculated stop price is lower than the current one, update it.
         if new_stop_price < current_stop_price:
             print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
             await update_stop_loss(symbol, new_stop_price, position_side)
@@ -115,6 +111,7 @@ async def update_stop_loss(symbol, new_stop_price, side):
         stop_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         new_stop_price_rounded = round_price(symbol, new_stop_price)
 
+        # --- CORRECTED: Added the stopPrice parameter ---
         sl_order = client.futures_create_order(
             symbol=symbol,
             side=stop_side,
@@ -158,8 +155,7 @@ async def cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True):
 
 async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, resistance_4h, adx_value, reduce_only=False, stop_loss_atr_multiplier=2.0, atr_value=None, df=None, stop_loss_price=None):
     """
-    MODIFIED: Now accepts an optional 'stop_loss_price'. 
-    If provided, it uses it. Otherwise, it calculates SL with ATR.
+    Places the main trade and then immediately places the corresponding stop-loss order.
     """
     if adx_value > 25:
         RISK_PER_TRADE = 0.03
@@ -179,9 +175,7 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         
         limit_price = round_price(symbol, price)
 
-        # --- MODIFIED LOGIC: Prioritize provided stop_loss_price ---
         if stop_loss_price is None:
-            # Original ATR-based calculation for the trend-following bot
             if atr_value is None or df is None:
                 print("Cannot calculate position size without ATR and historical data.")
                 return False
@@ -195,8 +189,6 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
                 recent_high = df['high'].iloc[-3:].max()
                 stop_loss_price = max(atr_stop_loss, recent_high)
         
-        # --- End of modified logic ---
-        
         stop_loss_price = round_price(symbol, stop_loss_price)
         
         stop_loss_distance = abs(limit_price - stop_loss_price)
@@ -204,21 +196,10 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
             print("Stop loss distance is zero, cannot calculate position size.")
             return False
 
-        if side == SIDE_BUY:
-            take_profit_1_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
-            take_profit_2_price = resistance_4h 
-        else: # SIDE_SELL
-            take_profit_1_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
-            take_profit_2_price = support_4h
+        trade_amount_usdt = (usdt_balance * RISK_PER_TRADE) / (stop_loss_distance / limit_price)
+        total_quantity = round_quantity(symbol, trade_amount_usdt / limit_price)
         
-        take_profit_1_price = round_price(symbol, take_profit_1_price)
-        take_profit_2_price = round_price(symbol, take_profit_2_price)
-
-        stop_loss_distance_percent = stop_loss_distance / limit_price if limit_price > 0 else 0
-        trade_amount_usdt = (usdt_balance * RISK_PER_TRADE) / stop_loss_distance_percent if stop_loss_distance_percent > 0 else 0
-        total_quantity = round_quantity(symbol, trade_amount_usdt / limit_price) if limit_price > 0 else 0
-        
-        if total_quantity <= 0 or round(limit_price * total_quantity, 2) < 5:
+        if total_quantity <= 0 or (limit_price * total_quantity) < 5:
             print("Calculated quantity or notional value is too small to trade.")
             return False
 
@@ -231,12 +212,16 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
             "timestamp": pd.Timestamp.now().isoformat()
         })
 
+        # --- Place the Stop-Loss Order Immediately After ---
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+        
+        # --- CORRECTED: Added the stopPrice parameter ---
         sl_order = client.futures_create_order(
             symbol=symbol, side=stop_loss_side, type='STOP_MARKET',
             stopPrice=stop_loss_price, closePosition=True
         )
         
+        print(f"✅ Main order for {symbol} placed. SL placed at {stop_loss_price}.")
         return True
 
     except Exception as e:
@@ -260,10 +245,9 @@ def close_position(symbol, side, quantity, reason_to_close):
         
 async def set_margin_type(symbol, margin_type='ISOLATED'):
     """
-    MODIFIED: Handles cases where no position info exists for a symbol.
+    Sets the margin type for a symbol.
     """
     try:
-        # CORRECTED FUNCTION NAME
         position_info = client.futures_position_information(symbol=symbol)
         
         if position_info:
@@ -273,7 +257,6 @@ async def set_margin_type(symbol, margin_type='ISOLATED'):
                 if VERBOSE_LOGGING:
                     print(f"Margin type for {symbol} set to {margin_type}.")
         else:
-            # If no position info exists, we can likely just set it.
             try:
                 client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
                 if VERBOSE_LOGGING:

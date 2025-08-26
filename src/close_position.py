@@ -17,19 +17,21 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     reason = None
     last_close = df['close'].iloc[-1]
     
+    # --- PRIMARY EXIT: Market Structure Break ---
     # Define the lookback period to find the most recent swing low.
     lookback_period = 10 
     
     # Find the lowest low in the recent past (our swing low).
     recent_swing_low = df['low'].iloc[-lookback_period:-1].min()
 
-    # If the price closes below this recent swing low, it's a sign the uptrend is broken.
+    # If the price closes below this recent swing low, the uptrend is likely broken.
     if last_close < recent_swing_low:
         reason = f"Exit Signal: Price broke market structure by closing below the recent swing low of ${recent_swing_low:.4f}."
 
-    # We can still keep the stochastic as a secondary, profit-taking signal for very overextended moves.
+    # --- SECONDARY EXIT: Profit-Taking in Extreme Conditions ---
+    # This acts as a profit-taking signal for very overextended moves.
     stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
-    if stoch_k.iloc[-1] > 90 and stoch_crossed_down and not reason: # Using a higher threshold (e.g., 90) for this exit.
+    if stoch_k.iloc[-1] > 90 and stoch_crossed_down and not reason: # Using a high threshold (90) for this exit.
         reason = f"Profit Take: Stochastic crossed down in extreme overbought zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:
@@ -45,19 +47,20 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     reason = None
     last_close = df['close'].iloc[-1]
 
+    # --- PRIMARY EXIT: Market Structure Break ---
     # Define the lookback period to find the most recent swing high.
     lookback_period = 10
 
     # Find the highest high in the recent past (our swing high).
     recent_swing_high = df['high'].iloc[-lookback_period:-1].max()
 
-    # If the price closes above this recent swing high, it's a sign the downtrend is broken.
+    # If the price closes above this recent swing high, the downtrend is likely broken.
     if last_close > recent_swing_high:
         reason = f"Exit Signal: Price broke market structure by closing above the recent swing high of ${recent_swing_high:.4f}."
 
-    # Secondary profit-taking signal for extreme oversold conditions.
+    # --- SECONDARY EXIT: Profit-Taking in Extreme Conditions ---
     stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
-    if stoch_k.iloc[-1] < 10 and stoch_crossed_up and not reason: # Using a lower threshold (e.g., 10) for this exit.
+    if stoch_k.iloc[-1] < 10 and stoch_crossed_up and not reason: # Using a low threshold (10) for this exit.
         reason = f"Profit Take: Stochastic crossed up in extreme oversold zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:

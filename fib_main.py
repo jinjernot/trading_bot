@@ -5,14 +5,35 @@ from config.settings import *
 from config.symbols import symbols
 from src.state_manager import bot_state
 from src.fib_strategy import check_fib_pullback_long_entry, check_fib_retrace_short_entry
+from binance.client import Client
+from config.secrets import API_KEY, API_SECRET
 
 import asyncio
+
+# --- NEW: Set your desired leverage here ---
+client = Client(API_KEY, API_SECRET)
+
+async def set_leverage(symbol, leverage):
+    """
+    Sets the leverage for a given symbol.
+    """
+    try:
+        client.futures_change_leverage(symbol=symbol, leverage=leverage)
+        if VERBOSE_LOGGING:
+            print(f"Leverage for {symbol} set to {leverage}x.")
+    except Exception as e:
+        # We can ignore the "No need to change leverage" error from Binance
+        if "No need to change leverage" not in str(e):
+            print(f"Error setting leverage for {symbol}: {e}")
 
 async def process_fib_symbol(symbol, all_positions, balance_data):
     """
     Processes a single symbol for both long and short Fibonacci strategies.
     """
     try:
+        # --- NEW: Set leverage for the symbol at the start of processing ---
+        await set_leverage(symbol, LEVERAGE)
+
         df_15m, _, _, df_4h, _, _, _, _, _ = await asyncio.to_thread(
             fetch_multi_timeframe_data, symbol, '15m', '4h', '1d'
         )
@@ -37,7 +58,7 @@ async def fib_bot_main_loop():
     """
     The main trading loop for the bidirectional Fibonacci Bot.
     """
-    print("--- 🤖 Starting Bidirectional Fibonacci Bot ---")
+    print(f"--- 🤖 Starting Bidirectional Fibonacci Bot with {LEVERAGE}x Leverage ---")
     while not bot_state.trading_paused:
         print("\n--- Fibonacci Bot: Starting new cycle ---")
         

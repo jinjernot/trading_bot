@@ -9,7 +9,8 @@ from config.secrets import API_KEY, API_SECRET
 from config.settings import leverage
 from src.state_manager import bot_state
 
-from main import main_trading_loop
+# --- MODIFIED: Import the main loop from fib_main.py instead of main.py ---
+from fib_main import fib_bot_main_loop
 
 app = Flask(__name__)
 client = Client(API_KEY, API_SECRET)
@@ -68,11 +69,10 @@ def check_cache_freshness():
             finally:
                 cache_lock.release()
 
-# --- REMOVED: All duplicated trading logic is gone from this file ---
-
 def run_async_loop():
     """Helper function to run the asyncio event loop in a thread."""
-    asyncio.run(main_trading_loop())
+    # --- MODIFIED: Call the correct main loop function ---
+    asyncio.run(fib_bot_main_loop())
 
 # --- API Endpoints ---
 @app.route('/')

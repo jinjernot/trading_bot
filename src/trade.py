@@ -49,12 +49,13 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         breakeven_price = round_price(symbol, entry_price)
         
-        # --- CORRECTED: Added the stopPrice parameter ---
+        # --- CORRECTED: Added the stopPrice and workingType parameters ---
         sl_order = client.futures_create_order(
             symbol=symbol,
             side=stop_loss_side,
             type='STOP_MARKET',
             stopPrice=breakeven_price,
+            workingType='MARK_PRICE',
             closePosition=True
         )
         print(f"New breakeven stop-loss placed successfully at {breakeven_price}: {sl_order['orderId']}")
@@ -120,12 +121,13 @@ async def update_stop_loss(symbol, new_stop_price, side):
         stop_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         new_stop_price_rounded = round_price(symbol, new_stop_price)
 
-        # --- CORRECTED: Added the stopPrice parameter ---
+        # --- CORRECTED: Added the stopPrice and workingType parameters ---
         sl_order = client.futures_create_order(
             symbol=symbol,
             side=stop_side,
             type='STOP_MARKET',
             stopPrice=new_stop_price_rounded,
+            workingType='MARK_PRICE',
             closePosition=True
         )
         print(f"Successfully moved trailing stop for {symbol} to {new_stop_price_rounded}")
@@ -224,10 +226,14 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         # --- Place the Stop-Loss Order Immediately After ---
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         
-        # --- CORRECTED: Added the stopPrice parameter ---
+        # --- CORRECTED: Added the stopPrice and workingType parameters ---
         sl_order = client.futures_create_order(
-            symbol=symbol, side=stop_loss_side, type='STOP_MARKET',
-            stopPrice=stop_loss_price, closePosition=True
+            symbol=symbol, 
+            side=stop_loss_side, 
+            type='STOP_MARKET',
+            stopPrice=stop_loss_price, 
+            workingType='MARK_PRICE',
+            closePosition=True
         )
         
         print(f"✅ Main order for {symbol} placed. SL placed at {stop_loss_price}.")

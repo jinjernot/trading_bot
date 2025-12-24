@@ -3,3 +3,5 @@ config
 trade_logs.json
 old
 __pycache__
+*.json
+*.csv

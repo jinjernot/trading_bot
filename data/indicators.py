@@ -3,7 +3,7 @@ from config.secrets import API_KEY, API_SECRET
 import numpy as np
 import pandas as pd
 from config.settings import VERBOSE_LOGGING
-import pandas_ta as ta
+# import pandas_ta as ta  # Temporarily disabled - not available
 from scipy.signal import find_peaks
 
 client = Client(API_KEY, API_SECRET)
@@ -131,15 +131,16 @@ def calculate_bollinger_bands(df, period=20, std_dev=2):
     return df
 
 def add_candlestick_patterns(df):
-    df.ta.cdl_pattern(name="all", append=True)
-    bullish_patterns = ['CDL_ENGULFING', 'CDL_HAMMER', 'CDL_MORNINGSTAR']
-    bearish_patterns = ['CDL_ENGULFING', 'CDL_HANGINGMAN', 'CDL_EVENINGSTAR']
+    # Temporarily disabled - pandas_ta not available
+    # df.ta.cdl_pattern(name="all", append=True)
+    # bullish_patterns = ['CDL_ENGULFING', 'CDL_HAMMER', 'CDL_MORNINGSTAR']
+    # bearish_patterns = ['CDL_ENGULFING', 'CDL_HANGINGMAN', 'CDL_EVENINGSTAR']
     df['bullish_pattern'] = 0
     df['bearish_pattern'] = 0
-    for pattern in bullish_patterns:
-        if pattern in df.columns and df[pattern].iloc[-1] == 100:
-            df.loc[df.index[-1], 'bullish_pattern'] = 1
-    for pattern in bearish_patterns:
-        if pattern in df.columns and df[pattern].iloc[-1] == -100:
-            df.loc[df.index[-1], 'bearish_pattern'] = 1
+    # for pattern in bullish_patterns:
+    #     if pattern in df.columns and df[pattern].iloc[-1] == 100:
+    #         df.loc[df.index[-1], 'bullish_pattern'] = 1
+    # for pattern in bearish_patterns:
+    #     if pattern in df.columns and df[pattern].iloc[-1] == -100:
+    #         df.loc[df.index[-1], 'bearish_pattern'] = 1
     return df

@@ -21,12 +21,10 @@ async def set_leverage(symbol, leverage):
     Sets the leverage for a given symbol.
     """
     try:
-        client.futures_change_leverage(symbol=symbol, leverage=leverage)
-        if VERBOSE_LOGGING:
-            print(f"Leverage for {symbol} set to {leverage}x.")
+        await asyncio.to_thread(client.futures_change_leverage, symbol=symbol, leverage=leverage)
     except Exception as e:
         if "No need to change leverage" not in str(e):
-            print(f"Error setting leverage for {symbol}: {e}")
+            print(f"⚠️ Error setting leverage for {symbol}: {e}")
 
 async def process_symbol(symbol, all_positions, balance_data):
     """
@@ -38,7 +36,7 @@ async def process_symbol(symbol, all_positions, balance_data):
         # --- Set leverage for the symbol at the start of processing ---
         await set_leverage(symbol, LEVERAGE)
 
-        df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _ = await asyncio.to_thread(
+        df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _, stoch_k_1h, stoch_d_1h = await asyncio.to_thread(
             fetch_multi_timeframe_data, symbol, '15m', '4h', '1d'
         )
 
@@ -47,7 +45,7 @@ async def process_symbol(symbol, all_positions, balance_data):
         df_15m = calculate_rsi(df_15m)
         df_15m = add_price_sma(df_15m, 50)
         df_15m = calculate_hull_moving_average(df_15m, 14)
-        df_15m = calculate_adx(df_15m) # <<< --- FIX: Calculate ADX for the 15m dataframe
+        df_15m = calculate_adx(df_15m)
         stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
         
         df_4h = calculate_adx(df_4h)
@@ -73,9 +71,9 @@ async def process_symbol(symbol, all_positions, balance_data):
 
             # 2. If no Fibonacci trade was taken, check for the General Trend Strategy
             if not fib_trade_taken:
-                general_trade_taken = await open_position_long(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
+                general_trade_taken = await open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
                 if not general_trade_taken:
-                    await open_position_short(symbol, df_15m, stoch_k_15m, stoch_d_15m, usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
+                    await open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
@@ -85,25 +83,39 @@ async def main_trading_loop():
     The unified main trading loop for the bot.
     """
     print(f"--- 🤖 Starting Unified Trading Bot with {LEVERAGE}x Leverage ---")
+    
+    cycle_count = 0
     while not bot_state.trading_paused:
-        print("\n--- Unified Bot: Starting new cycle ---")
+        cycle_count += 1
+        print(f"\n{'='*60}")
+        print(f"🔄 Cycle #{cycle_count} - {pd.Timestamp.now().strftime('%H:%M:%S')}")
+        print(f"{'='*60}")
         
         try:
             all_positions, balance_data = get_all_positions_and_balance()
             active_positions = [p for p in all_positions if float(p.get('positionAmt', 0)) != 0]
 
-            await manage_active_trades(active_positions)
+            if len(active_positions) > 0:
+                print(f"📊 Managing {len(active_positions)} active trade(s)")
+                await manage_active_trades(active_positions)
             
             if len(active_positions) >= MAX_CONCURRENT_TRADES:
-                print(f"Max concurrent trades reached ({len(active_positions)}/{MAX_CONCURRENT_TRADES})...")
+                print(f"⏸️  Max concurrent trades reached ({len(active_positions)}/{MAX_CONCURRENT_TRADES})")
             else:
-                tasks = [process_symbol(symbol, all_positions, balance_data) for symbol in symbols if symbol not in [p['symbol'] for p in active_positions]]
+                available_slots = MAX_CONCURRENT_TRADES - len(active_positions)
+                active_symbols = {p['symbol'] for p in active_positions}
+                symbols_to_check = [s for s in symbols if s not in active_symbols]
+                
+                print(f"🔍 Scanning {len(symbols_to_check)} symbols for entry signals...")
+                tasks = [process_symbol(symbol, all_positions, balance_data) for symbol in symbols_to_check]
                 await asyncio.gather(*tasks)
 
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            print(f"❌ Error in main loop: {e}")
 
-        print("\n--- Unified Bot cycle complete. Waiting for 60 seconds... ---")
+        print(f"\n{'='*60}")
+        print(f"✅ Cycle #{cycle_count} complete - Next cycle in 60s")
+        print(f"{'='*60}\n")
         await asyncio.sleep(60)
 
 if __name__ == "__main__":

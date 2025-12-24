@@ -4,18 +4,55 @@ from data.indicators import *
 from config.settings import *
 from src.state_manager import bot_state
 
-def update_loss_counter(roi):
-    if roi < 0:
-        bot_state.consecutive_losses += 1
-        print(f"Trade lost. Consecutive losses: {bot_state.consecutive_losses}")
-    else:
-        if bot_state.consecutive_losses > 0:
-            print("Trade won. Resetting consecutive loss counter.")
-        bot_state.consecutive_losses = 0
-
 async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resistance, atr_value, entry_price):
     reason = None
     last_close = df['close'].iloc[-1]
+    
+    # === PHASE 1 IMPROVEMENT: Partial Profit Taking ===
+    if ENABLE_PARTIAL_PROFITS:
+        # Calculate R (Risk) based on stop loss distance
+        # First, we need to get the position info to calculate actual R:R
+        from binance.client import Client
+        from config.secrets import API_KEY, API_SECRET
+        from data.get_data import round_quantity
+        client = Client(API_KEY, API_SECRET)
+        
+        # Take 50% profit at 2R (2:1 Risk/Reward)
+        if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):
+            try:
+                partial_size = abs(position) * PARTIAL_TP1_SIZE
+                partial_size = round_quantity(symbol, partial_size)
+                if partial_size > 0:
+                    print(f"💰 Taking {PARTIAL_TP1_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP1_RR}R) for {symbol}")
+                    client.futures_create_order(
+                        symbol=symbol, 
+                        side=SIDE_SELL, 
+                        type=ORDER_TYPE_MARKET, 
+                        quantity=partial_size, 
+                        reduceOnly=True
+                    )
+                    bot_state.partial_tp1_taken[symbol] = True
+            except Exception as e:
+                print(f"Error taking partial profit 1 for {symbol}: {e}")
+        
+        # Take 25% of remaining (which is 25% of original) at 3R
+        if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
+            try:
+                # 25% of the remaining 50% = 0.25 * 0.5 = 0.125 of original position
+                partial_size = abs(position) * PARTIAL_TP2_SIZE
+                partial_size = round_quantity(symbol, partial_size)
+                if partial_size > 0:
+                    print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
+                    client.futures_create_order(
+                        symbol=symbol, 
+                        side=SIDE_SELL, 
+                        type=ORDER_TYPE_MARKET, 
+                        quantity=partial_size, 
+                        reduceOnly=True
+                    )
+                    bot_state.partial_tp2_taken[symbol] = True
+            except Exception as e:
+                print(f"Error taking partial profit 2 for {symbol}: {e}")
     
     # --- BREAKEVEN LOGIC ---
     BREAKEVEN_ROI_THRESHOLD = 1.5 # Move to breakeven at 1.5% ROI
@@ -42,7 +79,10 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         update_loss_counter(roi)
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_SELL, abs(position), reason)
-        bot_state.breakeven_triggered.pop(symbol, None) # Reset state after closing
+        # Reset all state trackers for this symbol
+        bot_state.breakeven_triggered.pop(symbol, None)
+        bot_state.partial_tp1_taken.pop(symbol, None)
+        bot_state.partial_tp2_taken.pop(symbol, None)
         return True
 
     return False
@@ -50,6 +90,49 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
 async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, support, atr_value, entry_price):
     reason = None
     last_close = df['close'].iloc[-1]
+
+    # === PHASE 1 IMPROVEMENT: Partial Profit Taking ===
+    if ENABLE_PARTIAL_PROFITS:
+        from binance.client import Client
+        from config.secrets import API_KEY, API_SECRET
+        from data.get_data import round_quantity
+        client = Client(API_KEY, API_SECRET)
+        
+        # Take 50% profit at 2R (2:1 Risk/Reward)
+        if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):
+            try:
+                partial_size = abs(position) * PARTIAL_TP1_SIZE
+                partial_size = round_quantity(symbol, partial_size)
+                if partial_size > 0:
+                    print(f"💰 Taking {PARTIAL_TP1_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP1_RR}R) for {symbol}")
+                    client.futures_create_order(
+                        symbol=symbol, 
+                        side=SIDE_BUY, 
+                        type=ORDER_TYPE_MARKET, 
+                        quantity=partial_size, 
+                        reduceOnly=True
+                    )
+                    bot_state.partial_tp1_taken[symbol] = True
+            except Exception as e:
+                print(f"Error taking partial profit 1 for {symbol}: {e}")
+        
+        # Take 25% of remaining at 3R
+        if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
+            try:
+                partial_size = abs(position) * PARTIAL_TP2_SIZE
+                partial_size = round_quantity(symbol, partial_size)
+                if partial_size > 0:
+                    print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
+                    client.futures_create_order(
+                        symbol=symbol, 
+                        side=SIDE_BUY, 
+                        type=ORDER_TYPE_MARKET, 
+                        quantity=partial_size, 
+                        reduceOnly=True
+                    )
+                    bot_state.partial_tp2_taken[symbol] = True
+            except Exception as e:
+                print(f"Error taking partial profit 2 for {symbol}: {e}")
 
     # --- BREAKEVEN LOGIC ---
     BREAKEVEN_ROI_THRESHOLD = 1.5 # Move to breakeven at 1.5% ROI
@@ -76,7 +159,19 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         update_loss_counter(roi)
         await cancel_open_orders(symbol)
         close_position(symbol, SIDE_BUY, abs(position), reason)
-        bot_state.breakeven_triggered.pop(symbol, None) # Reset state after closing
+        # Reset all state trackers for this symbol
+        bot_state.breakeven_triggered.pop(symbol, None)
+        bot_state.partial_tp1_taken.pop(symbol, None)
+        bot_state.partial_tp2_taken.pop(symbol, None)
         return True
         
     return False
+
+def update_loss_counter(roi):
+    if roi < 0:
+        bot_state.consecutive_losses += 1
+        print(f"Trade lost. Consecutive losses: {bot_state.consecutive_losses}")
+    else:
+        if bot_state.consecutive_losses > 0:
+            print("Trade won. Resetting consecutive loss counter.")
+        bot_state.consecutive_losses = 0

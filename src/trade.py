@@ -69,6 +69,7 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     """
     position_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
     current_price = get_market_price(symbol)
+    entry_price = float(position_obj['entryPrice']) # Get entry price for logging
 
     if not current_price:
         return
@@ -79,25 +80,33 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
         if order['type'] == 'STOP_MARKET':
             current_stop_price = float(order['stopPrice'])
             break
-    
+
+    print(f"--- Trailing Stop Debug for {symbol} ---")
+    print(f"Position Side: {position_side}, Entry Price: {entry_price}")
+    print(f"Current Market Price: {current_price}")
+    print(f"Current Stop-Loss Price on Binance: {current_stop_price}")
+
+
     if current_stop_price is None:
         if VERBOSE_LOGGING:
             print(f"Could not find an existing stop-loss for {symbol} to trail.")
         return
-    
+
     if position_side == SIDE_BUY:
         new_stop_price = current_price - (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
+        print(f"Calculated New Stop (Long): {new_stop_price}. Condition to trail: {new_stop_price > current_stop_price}")
         if new_stop_price > current_stop_price:
             print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
             await update_stop_loss(symbol, new_stop_price, position_side)
-    
+
     elif position_side == SIDE_SELL:
         new_stop_price = current_price + (atr_value * TRAILING_STOP_ATR_MULTIPLIER)
+        print(f"Calculated New Stop (Short): {new_stop_price}. Condition to trail: {new_stop_price < current_stop_price}")
         if new_stop_price < current_stop_price:
             print(f"✅ Trailing stop for {symbol}. New SL: {new_stop_price:.4f} (Old: {current_stop_price:.4f})")
             await update_stop_loss(symbol, new_stop_price, position_side)
             
-            
+                        
 async def update_stop_loss(symbol, new_stop_price, side):
     """
     Cancels the old stop loss and places a new, updated one.

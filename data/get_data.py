@@ -90,7 +90,7 @@ def get_position(symbol, all_positions):
             if current_price is None: return 0, 0, 0, 0, 0
 
             unrealized_profit = (current_price - entry_price) * position_amt
-            margin_used = abs(position_amt * entry_price) / leverage if leverage != 0 else 0
+            margin_used = abs(position_amt * entry_price) / LEVERAGE if LEVERAGE != 0 else 0
             roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
             
             return position_amt, roi, unrealized_profit, margin_used, entry_price
@@ -131,10 +131,6 @@ def fetch_klines(symbol, interval, lookback='100'):
     df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
     return df, df['low'].min(), df['high'].max()
 
-def detect_trend(df, window=4, confirm=2):
-    if len(df) < window:
-        return 'sideways'
-    return 'sideways'
 
 def get_funding_rate(symbol):
     try:

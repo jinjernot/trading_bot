@@ -130,17 +130,6 @@ def calculate_bollinger_bands(df, period=20, std_dev=2):
     df['BB_Lower'] = df['BB_Mid'] - (df['BB_Std'] * std_dev)
     return df
 
-def is_market_volatile(df, atr_period=14, atr_threshold=0.05):
-    if 'atr' not in df.columns:
-        df = calculate_atr(df, period=atr_period)
-    
-    atr_percentage = (df['atr'].iloc[-1] / df['close'].iloc[-1]) * 100
-    
-    if VERBOSE_LOGGING:
-        print(f"ATR as percentage of price: {atr_percentage:.2f}%")
-        
-    return atr_percentage > atr_threshold
-
 def add_candlestick_patterns(df):
     df.ta.cdl_pattern(name="all", append=True)
     bullish_patterns = ['CDL_ENGULFING', 'CDL_HAMMER', 'CDL_MORNINGSTAR']

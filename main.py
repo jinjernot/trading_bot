@@ -47,7 +47,9 @@ async def process_symbol(symbol, all_positions, balance_data):
         df_15m = calculate_rsi(df_15m)
         df_15m = add_price_sma(df_15m, 50)
         df_15m = calculate_hull_moving_average(df_15m, 14)
+        df_15m = calculate_adx(df_15m) # <<< --- FIX: Calculate ADX for the 15m dataframe
         stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
+        
         df_4h = calculate_adx(df_4h)
         df_4h = add_price_sma(df_4h, 50)
         

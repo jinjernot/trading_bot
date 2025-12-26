@@ -2,13 +2,21 @@ from binance.enums import *
 from src.trade import place_order
 from data.indicators import *
 from config.settings import *
+from src.time_filters import is_optimal_5m_trading_time
 import pandas as pd
 
 async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
     
+    # Time-based filter - skip low volatility periods
+    is_optimal, time_reason = is_optimal_5m_trading_time()
+    if not is_optimal:
+        if VERBOSE_LOGGING:
+            print(f"⏰ Skipping LONG for {symbol}: {time_reason}")
+        return False
+    
     adx_value = df_15m['ADX'].iloc[-1]
 
-    # === PHASE 1 IMPROVEMENT: Increased MIN_ADX from 5 to 10 ===
+    # ADX threshold filter
     if adx_value < MIN_ADX_THRESHOLD:
         if VERBOSE_LOGGING:
             print(f"Skipping LONG for {symbol}: ADX is {adx_value:.2f}, below minimum threshold of {MIN_ADX_THRESHOLD}.")

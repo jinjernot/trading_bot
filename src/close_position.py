@@ -71,6 +71,29 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         if await move_stop_to_breakeven(symbol, entry_price, SIDE_BUY):
             bot_state.breakeven_triggered[symbol] = True
 
+    # --- TIER 1 EXIT CONDITIONS ---
+    import time
+    
+    # 1. Time-Based Exit
+    if ENABLE_TIME_BASED_EXIT:
+        entry_time = bot_state.entry_timestamps.get(symbol)
+        if entry_time:
+            hours_held = (time.time() - entry_time) / 3600
+            if hours_held >= MAX_HOLD_TIME_HOURS:
+                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {MAX_HOLD_TIME_HOURS}h). Freeing up capital."
+    
+    # 2. Funding Rate Exit
+    if not reason and ENABLE_FUNDING_RATE_EXIT:
+        from data.get_data import get_funding_rate
+        current_funding_rate = get_funding_rate(symbol)
+        if current_funding_rate > MAX_FUNDING_RATE_LONG:
+            reason = f"Funding Rate Exit: Current funding rate {current_funding_rate*100:.3f}% exceeds threshold {MAX_FUNDING_RATE_LONG*100:.3f}%. Overcrowded long position."
+    
+    # 3. Maximum Drawdown Limit
+    if not reason and ENABLE_MAX_DRAWDOWN_EXIT:
+        if roi <= EMERGENCY_EXIT_ROI:
+            reason = f"Emergency Exit: ROI at {roi:.2f}% reached emergency threshold of {EMERGENCY_EXIT_ROI}%. Cutting losses early."
+
     # --- PRIMARY EXIT: Market Structure Break ---
     lookback_period = 10 
     recent_swing_low = df['low'].iloc[-lookback_period:-1].min()
@@ -92,6 +115,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         bot_state.breakeven_triggered.pop(symbol, None)
         bot_state.partial_tp1_taken.pop(symbol, None)
         bot_state.partial_tp2_taken.pop(symbol, None)
+        bot_state.entry_timestamps.pop(symbol, None)
         return True
 
     return False
@@ -160,6 +184,29 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         if await move_stop_to_breakeven(symbol, entry_price, SIDE_SELL):
             bot_state.breakeven_triggered[symbol] = True
 
+    # --- TIER 1 EXIT CONDITIONS ---
+    import time
+    
+    # 1. Time-Based Exit
+    if ENABLE_TIME_BASED_EXIT:
+        entry_time = bot_state.entry_timestamps.get(symbol)
+        if entry_time:
+            hours_held = (time.time() - entry_time) / 3600
+            if hours_held >= MAX_HOLD_TIME_HOURS:
+                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {MAX_HOLD_TIME_HOURS}h). Freeing up capital."
+    
+    # 2. Funding Rate Exit
+    if not reason and ENABLE_FUNDING_RATE_EXIT:
+        from data.get_data import get_funding_rate
+        current_funding_rate = get_funding_rate(symbol)
+        if current_funding_rate < MAX_FUNDING_RATE_SHORT:
+            reason = f"Funding Rate Exit: Current funding rate {current_funding_rate*100:.3f}% below threshold {MAX_FUNDING_RATE_SHORT*100:.3f}%. Overcrowded short position."
+    
+    # 3. Maximum Drawdown Limit
+    if not reason and ENABLE_MAX_DRAWDOWN_EXIT:
+        if roi <= EMERGENCY_EXIT_ROI:
+            reason = f"Emergency Exit: ROI at {roi:.2f}% reached emergency threshold of {EMERGENCY_EXIT_ROI}%. Cutting losses early."
+
     # --- PRIMARY EXIT: Market Structure Break ---
     lookback_period = 10
     recent_swing_high = df['high'].iloc[-lookback_period:-1].max()
@@ -181,6 +228,7 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         bot_state.breakeven_triggered.pop(symbol, None)
         bot_state.partial_tp1_taken.pop(symbol, None)
         bot_state.partial_tp2_taken.pop(symbol, None)
+        bot_state.entry_timestamps.pop(symbol, None)
         return True
         
     return False

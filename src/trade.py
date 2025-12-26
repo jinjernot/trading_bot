@@ -417,7 +417,7 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
     RR_RATIO_TP1 = 1.5
 
     try:
-        await cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True)
+        # set_margin_type will cancel all open orders to avoid -4067 error
         await set_margin_type(symbol, margin_type='ISOLATED')
 
         price = get_market_price(symbol)
@@ -477,6 +477,10 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
             "quantity": total_quantity, "price": float(order['avgPrice']), "reason": reason_to_open,
             "timestamp": pd.Timestamp.now().isoformat()
         })
+        
+        # Track entry timestamp for time-based exits
+        from src.state_manager import bot_state
+        bot_state.entry_timestamps[symbol] = time.time()
 
         # --- Place the Stop-Loss Order Immediately After ---
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
@@ -701,8 +705,22 @@ def close_position(symbol, side, quantity, reason_to_close):
 async def set_margin_type(symbol, margin_type='ISOLATED'):
     """
     Sets the margin type for a symbol.
+    Cancels all open orders first to avoid API error -4067.
     """
     try:
+        # Cancel ALL open orders first to avoid -4067 error
+        open_orders = client.futures_get_open_orders(symbol=symbol)
+        if open_orders:
+            print(f"⚠️ Found {len(open_orders)} open order(s) for {symbol}. Cancelling before setting margin type...")
+            for order in open_orders:
+                order_type = order.get('type', 'UNKNOWN')
+                order_id = order.get('orderId', 'N/A')
+                print(f"   Cancelling {order_type} order {order_id}")
+                try:
+                    client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
+                except Exception as cancel_error:
+                    print(f"   ⚠️ Failed to cancel order {order_id}: {cancel_error}")
+        
         position_info = client.futures_position_information(symbol=symbol)
         
         if position_info:

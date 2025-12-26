@@ -11,5 +11,7 @@ class BotState:
         # Phase 1: Partial Profit Tracking
         self.partial_tp1_taken = {}  # Track if first partial profit (2R) has been taken
         self.partial_tp2_taken = {}  # Track if second partial profit (3R) has been taken
+        # Tier 1 Exit Tracking
+        self.entry_timestamps = {}  # Track when positions were opened
 
 bot_state = BotState()

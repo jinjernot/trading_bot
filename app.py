@@ -10,6 +10,15 @@ from src.state_manager import bot_state
 
 app = Flask(__name__)
 client = Client(API_KEY, API_SECRET)
+# Sync time with Binance servers to fix timestamp errors
+try:
+    server_time = client.get_server_time()
+    local_time = int(time.time() * 1000)
+    time_offset = server_time['serverTime'] - local_time
+    client.timestamp_offset = time_offset
+    print(f"⏰ Dashboard: Time synced with Binance. Offset: {time_offset}ms")
+except Exception as e:
+    print(f"⚠️ Dashboard: Could not sync time with Binance: {e}")
 
 # --- Server-Side Caching Mechanism ---
 CACHE = {
@@ -46,7 +55,8 @@ def refresh_cache():
             for p in all_positions if float(p.get('positionAmt', 0)) != 0
         ]
 
-        current_balance = get_usdt_balance()
+        balance_data = client.futures_account_balance()
+        current_balance = get_usdt_balance(balance_data)
         CACHE['active_trades'] = current_active_trades
         CACHE['account_balance'] = {'usdt_balance': current_balance}
         CACHE['last_fetch_timestamp'] = time.time()

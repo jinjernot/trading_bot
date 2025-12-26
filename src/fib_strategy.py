@@ -9,11 +9,11 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     Checks for a LONG buying opportunity using a confirmation scoring system.
     """
-    # --- Core Condition 1: Strong 4-hour uptrend ---
+    # --- Core Condition 1: Moderate 4-hour uptrend ---
     adx_4h = df_4h['ADX'].iloc[-1]
     price_sma_4h = df_4h['price_sma_50'].iloc[-1]
     last_close_4h = df_4h['close'].iloc[-1]
-    is_strong_uptrend = adx_4h > 25 and last_close_4h > price_sma_4h
+    is_strong_uptrend = adx_4h > 15 and last_close_4h > price_sma_4h
     if not is_strong_uptrend:
         return
 
@@ -73,11 +73,11 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     Checks for a SHORT selling opportunity using a confirmation scoring system.
     """
-    # --- Core Condition 1: Strong 4-hour downtrend ---
+    # --- Core Condition 1: Moderate 4-hour downtrend ---
     adx_4h = df_4h['ADX'].iloc[-1]
     price_sma_4h = df_4h['price_sma_50'].iloc[-1]
     last_close_4h = df_4h['close'].iloc[-1]
-    is_strong_downtrend = adx_4h > 25 and last_close_4h < price_sma_4h
+    is_strong_downtrend = adx_4h > 15 and last_close_4h < price_sma_4h
     if not is_strong_downtrend:
         return
 

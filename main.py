@@ -1,4 +1,5 @@
 import asyncio
+import time
 from binance.client import Client
 from config.secrets import API_KEY, API_SECRET
 from config.symbols import symbols
@@ -15,6 +16,15 @@ from src.open_position import open_position_long, open_position_short
 
 
 client = Client(API_KEY, API_SECRET)
+# Sync time with Binance servers to fix timestamp errors
+try:
+    server_time = client.get_server_time()
+    local_time = int(time.time() * 1000)
+    time_offset = server_time['serverTime'] - local_time
+    client.timestamp_offset = time_offset
+    print(f"⏰ Time synced with Binance. Offset: {time_offset}ms")
+except Exception as e:
+    print(f"⚠️ Could not sync time with Binance: {e}")
 
 async def set_leverage(symbol, leverage):
     """
@@ -37,7 +47,7 @@ async def process_symbol(symbol, all_positions, balance_data):
         await set_leverage(symbol, LEVERAGE)
 
         df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _, stoch_k_1h, stoch_d_1h = await asyncio.to_thread(
-            fetch_multi_timeframe_data, symbol, '15m', '4h', '1d'
+            fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
         )
 
         # --- Prepare Data and Indicators ---

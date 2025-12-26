@@ -15,7 +15,16 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         from binance.client import Client
         from config.secrets import API_KEY, API_SECRET
         from data.get_data import round_quantity
+        import time
         client = Client(API_KEY, API_SECRET)
+        # Sync time with Binance servers
+        try:
+            server_time = client.get_server_time()
+            local_time = int(time.time() * 1000)
+            time_offset = server_time['serverTime'] - local_time
+            client.timestamp_offset = time_offset
+        except Exception:
+            pass
         
         # Take 50% profit at 2R (2:1 Risk/Reward)
         if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):
@@ -96,7 +105,16 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         from binance.client import Client
         from config.secrets import API_KEY, API_SECRET
         from data.get_data import round_quantity
+        import time
         client = Client(API_KEY, API_SECRET)
+        # Sync time with Binance servers
+        try:
+            server_time = client.get_server_time()
+            local_time = int(time.time() * 1000)
+            time_offset = server_time['serverTime'] - local_time
+            client.timestamp_offset = time_offset
+        except Exception:
+            pass
         
         # Take 50% profit at 2R (2:1 Risk/Reward)
         if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):

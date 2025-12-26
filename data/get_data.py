@@ -10,6 +10,14 @@ from data.indicators import calculate_stoch, add_price_sma, PERIOD, K, D
 from src.state_manager import bot_state
 
 client = Client(API_KEY, API_SECRET)
+# Sync time with Binance servers to fix timestamp errors
+try:
+    server_time = client.get_server_time()
+    local_time = int(time.time() * 1000)
+    time_offset = server_time['serverTime'] - local_time
+    client.timestamp_offset = time_offset
+except Exception:
+    pass  # Silent fail on import
 
 def get_all_positions_and_balance():
     """

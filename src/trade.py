@@ -1,19 +1,167 @@
 import os
 import json
+import time
 import pandas as pd
-from binance.enums import *
+import hmac
+import hashlib
+import requests
+from binance.enums import (
+    SIDE_BUY, 
+    SIDE_SELL, 
+    ORDER_TYPE_MARKET
+)
 import asyncio
 
 from config.paths import LOG_FILE
 from config.secrets import API_KEY, API_SECRET
-from config.settings import VERBOSE_LOGGING, TRAILING_STOP_ATR_MULTIPLIER
+from config.settings import VERBOSE_LOGGING, TRAILING_STOP_ATR_MULTIPLIER, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
 
 from data.get_data import get_market_price, round_price, round_quantity, get_usdt_balance, fetch_multi_timeframe_data
 from data.indicators import calculate_atr
+from src.detailed_logger import log_trade_exit
 
 from binance.client import Client
 
 client = Client(API_KEY, API_SECRET)
+# Sync time with Binance servers to fix timestamp errors
+try:
+    server_time = client.get_server_time()
+    local_time = int(time.time() * 1000)
+    time_offset = server_time['serverTime'] - local_time
+    client.timestamp_offset = time_offset
+except Exception:
+    pass  # Silent fail on import
+
+
+def place_algo_stop_loss(symbol, side, stop_price, quantity, working_type='CONTRACT_PRICE'):
+    """
+    Places a STOP_MARKET order using Binance's new Algo Order API endpoint.
+    Required since December 9, 2025 when Binance migrated conditional orders.
+    
+    Args:
+        symbol: Trading pair (e.g., 'BTCUSDT')
+        side: 'BUY' or 'SELL'
+        stop_price: Trigger price for the stop-loss
+        quantity: Position quantity to close
+        working_type: 'CONTRACT_PRICE' or 'MARK_PRICE'
+    
+    Returns:
+        dict: API response containing order details
+    """
+    from urllib.parse import urlencode
+    
+    base_url = 'https://fapi.binance.com'
+    endpoint = '/fapi/v1/algoOrder'
+    
+    # Prepare parameters (don't include signature yet)
+    timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
+    params = {
+        'symbol': symbol,
+        'side': side,
+        'algoType': 'CONDITIONAL',  # Required for STOP_MARKET orders
+        'type': 'STOP_MARKET',
+        'triggerprice': float(stop_price),  # Binance uses lowercase triggerprice
+        'quantity': float(quantity),         # Ensure it's a float
+        'reduceOnly': 'true',
+        'workingType': working_type,
+        'timestamp': timestamp
+    }
+    
+    # Create query string for signature (parameters in original order, URL encoded)
+    query_string = urlencode(params)
+    
+    # Generate signature
+    signature = hmac.new(
+        API_SECRET.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Add signature to params
+    params['signature'] = signature
+    
+    # Make request
+    headers = {
+        'X-MBX-APIKEY': API_KEY
+    }
+    
+    response = requests.post(
+        base_url + endpoint,
+        params=params,
+        headers=headers,
+        timeout=10
+    )
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Algo Order API Error: {response.status_code} - {response.text}")
+
+
+def place_algo_take_profit(symbol, side, take_profit_price, quantity, working_type='CONTRACT_PRICE'):
+    """
+    Places a TAKE_PROFIT_MARKET order using Binance's new Algo Order API endpoint.
+    Required since December 9, 2025 when Binance migrated conditional orders.
+    
+    Args:
+        symbol: Trading pair (e.g., 'BTCUSDT')
+        side: 'BUY' or 'SELL'
+        take_profit_price: Trigger price for take-profit
+        quantity: Position quantity to close
+        working_type: 'CONTRACT_PRICE' or 'MARK_PRICE'
+    
+    Returns:
+        dict: API response containing order details
+    """
+    from urllib.parse import urlencode
+    
+    base_url = 'https://fapi.binance.com'
+    endpoint = '/fapi/v1/algoOrder'
+    
+    # Prepare parameters (don't include signature yet)
+    timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
+    params = {
+        'symbol': symbol,
+        'side': side,
+        'algoType': 'CONDITIONAL',  # Required for TAKE_PROFIT orders
+        'type': 'TAKE_PROFIT_MARKET',
+        'triggerprice': float(take_profit_price),  # Binance uses lowercase triggerprice
+        'quantity': float(quantity),                # Ensure it's a float
+        'reduceOnly': 'true',
+        'workingType': working_type,
+        'timestamp': timestamp
+    }
+    
+    # Create query string for signature (parameters in original order, URL encoded)
+    query_string = urlencode(params)
+    
+    # Generate signature
+    signature = hmac.new(
+        API_SECRET.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Add signature to params
+    params['signature'] = signature
+    
+    # Make request
+    headers = {
+        'X-MBX-APIKEY': API_KEY
+    }
+    
+    response = requests.post(
+        base_url + endpoint,
+        params=params,
+        headers=headers,
+        timeout=10
+    )
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Algo Order API Error: {response.status_code} - {response.text}")
+
 
 async def manage_active_trades(active_positions):
     """
@@ -31,7 +179,7 @@ async def manage_active_trades(active_positions):
             print(f"✅ Position for {symbol} is profitable. Managing ATR trailing stop.")
             
             df_15m, _, _, _, _, _, _, _, _ = await asyncio.to_thread(
-                fetch_multi_timeframe_data, symbol, '15m', '4h', '1d'
+                fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
             )
             df_15m = calculate_atr(df_15m)
             atr_value = df_15m['atr'].iloc[-1]
@@ -46,19 +194,59 @@ async def move_stop_to_breakeven(symbol, entry_price, side):
     try:
         await cancel_open_orders(symbol, cancel_sl=True, cancel_tp=False)
         
+        
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         breakeven_price = round_price(symbol, entry_price)
         
-        # --- CORRECTED: Added the stopPrice and workingType parameters ---
-        sl_order = client.futures_create_order(
-            symbol=symbol,
-            side=stop_loss_side,
-            type='STOP_MARKET',
-            stopPrice=breakeven_price,
-            workingType='MARK_PRICE',
-            closePosition=True
-        )
-        print(f"New breakeven stop-loss placed successfully at {breakeven_price}: {sl_order['orderId']}")
+        # Get current position quantity
+        position_info = client.futures_position_information(symbol=symbol)
+        position_qty = 0
+        for pos in position_info:
+            qty = float(pos['positionAmt'])
+            if qty != 0:
+                position_qty = abs(qty)
+                break
+        
+        if position_qty == 0:
+            print(f"❌ No position found for {symbol}")
+            return False
+        
+        position_qty = round_quantity(symbol, position_qty)
+        
+        # BREAKEVEN STOP LOSS: Use new Algo Order API
+        stop_loss_placed = False
+        
+        # TRY #1: ALGO API with CONTRACT_PRICE
+        try:
+            sl_order = place_algo_stop_loss(
+                symbol=symbol,
+                side=stop_loss_side,
+                stop_price=breakeven_price,
+                quantity=position_qty,
+                working_type='CONTRACT_PRICE'
+            )
+            stop_loss_placed = True
+            print(f"✅ Breakeven stop-loss placed at {breakeven_price} (ALGO API/CONTRACT_PRICE): {sl_order.get('orderId', sl_order.get('algoId', 'N/A'))}")
+        except Exception as sl_error_1:
+            # TRY #2: ALGO API with MARK_PRICE
+            try:
+                sl_order = place_algo_stop_loss(
+                    symbol=symbol,
+                    side=stop_loss_side,
+                    stop_price=breakeven_price,
+                    quantity=position_qty,
+                    working_type='MARK_PRICE'
+                )
+                stop_loss_placed = True
+                print(f"✅ Breakeven stop-loss placed at {breakeven_price} (ALGO API/MARK_PRICE): {sl_order.get('orderId', sl_order.get('algoId', 'N/A'))}")
+            except Exception as sl_error_2:
+                print(f"❌ All methods failed to place breakeven stop-loss: {sl_error_2}")
+                raise sl_error_2
+        
+        if not stop_loss_placed:
+            print(f"❌ Failed to place breakeven stop-loss for {symbol}")
+            return False
+            
         return True
     except Exception as e:
         print(f"Error moving stop-loss to breakeven for {symbol}: {e}")
@@ -118,22 +306,73 @@ async def update_stop_loss(symbol, new_stop_price, side):
             if order['type'] == 'STOP_MARKET':
                 client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
 
+
+
         stop_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         new_stop_price_rounded = round_price(symbol, new_stop_price)
+        
+        # Get current position quantity
+        position_info = client.futures_position_information(symbol=symbol)
+        position_qty = 0
+        for pos in position_info:
+            qty = float(pos['positionAmt'])
+            if qty != 0:
+                position_qty = abs(qty)
+                break
+        
+        if position_qty == 0:
+            print(f"⚠️ No position found for {symbol}, cannot update stop-loss")
+            return
+        
+        position_qty = round_quantity(symbol, position_qty)
 
-        # --- CORRECTED: Added the stopPrice and workingType parameters ---
-        sl_order = client.futures_create_order(
-            symbol=symbol,
-            side=stop_side,
-            type='STOP_MARKET',
-            stopPrice=new_stop_price_rounded,
-            workingType='MARK_PRICE',
-            closePosition=True
-        )
-        print(f"Successfully moved trailing stop for {symbol} to {new_stop_price_rounded}")
+        # TRAILING STOP LOSS: Use new Algo Order API
+        stop_loss_placed = False
+        
+        # TRY #1: ALGO API with CONTRACT_PRICE
+        try:
+            sl_order = place_algo_stop_loss(
+                symbol=symbol,
+                side=stop_side,
+                stop_price=new_stop_price_rounded,
+                quantity=position_qty,
+                working_type='CONTRACT_PRICE'
+            )
+            stop_loss_placed = True
+            print(f"✅ Trailing stop updated for {symbol} to {new_stop_price_rounded} (ALGO API/CONTRACT_PRICE)")
+        except Exception as sl_error_1:
+            # TRY #2: ALGO API with MARK_PRICE
+            try:
+                sl_order = place_algo_stop_loss(
+                    symbol=symbol,
+                    side=stop_side,
+                    stop_price=new_stop_price_rounded,
+                    quantity=position_qty,
+                    working_type='MARK_PRICE'
+                )
+                stop_loss_placed = True
+                print(f"✅ Trailing stop updated for {symbol} to {new_stop_price_rounded} (ALGO API/MARK_PRICE)")
+            except Exception as sl_error_2:
+                print(f"❌ All methods failed to update trailing stop: {sl_error_2}")
+                raise sl_error_2
+        
+        if not stop_loss_placed:
+            print(f"⚠️ Failed to update trailing stop for {symbol}, keeping old stop-loss")
 
     except Exception as e:
         print(f"Error updating trailing stop for {symbol}: {e}")
+
+
+def calculate_stop_limit_price(stop_price, side):
+    """
+    Calculate an appropriate limit price for stop-limit orders.
+    For LONG positions: limit price = stop_price * 0.995 (0.5% lower to ensure execution)
+    For SHORT positions: limit price = stop_price * 1.005 (0.5% higher to ensure execution)
+    """
+    if side == SIDE_BUY:  # LONG position, stop-loss below market
+        return stop_price * 0.995
+    else:  # SHORT position, stop-loss above market
+        return stop_price * 1.005
 
 
 def log_trade(data):
@@ -214,9 +453,25 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
             print("Calculated quantity or notional value is too small to trade.")
             return False
 
+        # Place the main market order
+        import sys
+        print(f"\n{'='*70}")
+        print(f"📊 PLACING ORDER FOR {symbol}")
+        print(f"   Side: {side}")
+        print(f"   Entry Price: ${limit_price}")
+        print(f"   Quantity: {total_quantity}")
+        print(f"   Stop Loss: ${stop_loss_price}")
+        print(f"   Risk: {(usdt_balance * (RISK_PER_TRADE if adx_value > 18 else 0.01)):.2f} USDT")
+        print(f"{'='*70}")
+        sys.stdout.flush()
+        
         order = client.futures_create_order(
             symbol=symbol, side=side, type=ORDER_TYPE_MARKET, quantity=total_quantity
         )
+        
+        print(f"✅ Main order filled at ${float(order['avgPrice'])}")
+        sys.stdout.flush()
+        
         log_trade({
             "symbol": symbol, "USDT_balance": usdt_balance, "side": side, 
             "quantity": total_quantity, "price": float(order['avgPrice']), "reason": reason_to_open,
@@ -226,35 +481,220 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         # --- Place the Stop-Loss Order Immediately After ---
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         
-        # --- CORRECTED: Added the stopPrice and workingType parameters ---
-        sl_order = client.futures_create_order(
-            symbol=symbol, 
-            side=stop_loss_side, 
-            type='STOP_MARKET',
-            stopPrice=stop_loss_price, 
-            workingType='MARK_PRICE',
-            closePosition=True
-        )
+        print(f"\n🛡️ PLACING STOP LOSS...")
+        print(f"   Type: STOP_MARKET (Algo Order API)")
+        print(f"   Stop Price: ${stop_loss_price}")
+        print(f"   Side: {stop_loss_side}")
+        sys.stdout.flush()
         
-        print(f"✅ Main order for {symbol} placed. SL placed at {stop_loss_price}.")
+        # STOP LOSS PLACEMENT: Try new Algo Order API first (required since Dec 9, 2025)
+        stop_loss_placed = False
+        sl_order = None
+        
+        # TRY #1: NEW ALGO ORDER API with CONTRACT_PRICE
+        try:
+            print(f"   Attempting: Algo Order API with CONTRACT_PRICE...")
+            sys.stdout.flush()
+            sl_order = place_algo_stop_loss(
+                symbol=symbol,
+                side=stop_loss_side,
+                stop_price=stop_loss_price,
+                quantity=total_quantity,
+                working_type='CONTRACT_PRICE'
+            )
+            stop_loss_placed = True
+            print(f"✅✅✅ STOP LOSS PLACED SUCCESSFULLY (ALGO API/CONTRACT_PRICE) ✅✅✅")
+            print(f"   Order ID: {sl_order.get('orderId', sl_order.get('algoId', 'N/A'))}")
+            sys.stdout.flush()
+        except Exception as sl_error_1:
+            print(f"   ⚠️ Failed with Algo API CONTRACT_PRICE: {sl_error_1}")
+            sys.stdout.flush()
+            
+            # TRY #2: NEW ALGO ORDER API with MARK_PRICE
+            try:
+                print(f"   Attempting: Algo Order API with MARK_PRICE...")
+                sys.stdout.flush()
+                sl_order = place_algo_stop_loss(
+                    symbol=symbol,
+                    side=stop_loss_side,
+                    stop_price=stop_loss_price,
+                    quantity=total_quantity,
+                    working_type='MARK_PRICE'
+                )
+                stop_loss_placed = True
+                print(f"✅✅✅ STOP LOSS PLACED SUCCESSFULLY (ALGO API/MARK_PRICE) ✅✅✅")
+                print(f"   Order ID: {sl_order.get('orderId', sl_order.get('algoId', 'N/A'))}")
+                sys.stdout.flush()
+            except Exception as sl_error_2:
+                print(f"   ⚠️ Failed with Algo API MARK_PRICE: {sl_error_2}")
+                print(f"   Note: Binance migrated STOP orders to Algo API on Dec 9, 2025")
+                sys.stdout.flush()
+        
+        # If all stop-loss attempts failed, close the position immediately
+        if not stop_loss_placed:
+            print(f"\n❌❌❌ ALL STOP LOSS METHODS FAILED ❌❌❌")
+            print(f"   Symbol: {symbol}")
+            print(f"   Main order was placed but STOP LOSS FAILED!")
+            print(f"\n🔄 CANCELLING MAIN ORDER TO PREVENT UNPROTECTED POSITION...")
+            sys.stdout.flush()
+            
+            # TRANSACTION SAFETY: Cancel the main order if stop-loss failed
+            try:
+                # Close the position that was just opened
+                close_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+                client.futures_create_order(
+                    symbol=symbol,
+                    side=close_side,
+                    type=ORDER_TYPE_MARKET,
+                    quantity=total_quantity,
+                    reduceOnly=True
+                )
+                print(f"✅ Position closed successfully. No unprotected position.")
+                print(f"{'='*70}\n")
+                sys.stdout.flush()
+            except Exception as cancel_error:
+                print(f"❌❌❌ CRITICAL: FAILED TO CANCEL MAIN ORDER ❌❌❌")
+                print(f"   You have an UNPROTECTED position for {symbol}!")
+                print(f"   Please manually close or add stop-loss on Binance!")
+                print(f"   Cancel Error: {cancel_error}")
+                print(f"{'='*70}\n")
+                sys.stdout.flush()
+            
+            return False  # Trade failed due to stop-loss issue
+
+        # --- Place the Take-Profit Order ---
+        take_profit_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
+        
+        # Calculate take-profit price based on RR ratio
+        if side == SIDE_BUY:
+            take_profit_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
+        else:  # SIDE_SELL
+            take_profit_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
+        
+        take_profit_price = round_price(symbol, take_profit_price)
+        
+        print(f"\n💰 PLACING TAKE PROFIT...")
+        print(f"   Type: TAKE_PROFIT_MARKET (Algo Order API)")
+        print(f"   TP Price: ${take_profit_price}")
+        print(f"   Side: {take_profit_side}")
+        print(f"   Risk-Reward Ratio: {RR_RATIO_TP1}:1")
+        sys.stdout.flush()
+        
+        # TAKE PROFIT PLACEMENT: Use new Algo Order API (required since Dec 9, 2025)
+        try:
+            print(f"   Attempting: Algo Order API with CONTRACT_PRICE...")
+            sys.stdout.flush()
+            tp_order = place_algo_take_profit(
+                symbol=symbol,
+                side=take_profit_side,
+                take_profit_price=take_profit_price,
+                quantity=total_quantity,
+                working_type='CONTRACT_PRICE'
+            )
+            print(f"✅✅✅ TAKE PROFIT PLACED SUCCESSFULLY (ALGO API/CONTRACT_PRICE) ✅✅✅")
+            print(f"   Order ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}")
+            print(f"{'='*70}\n")
+            sys.stdout.flush()
+        except Exception as tp_error:
+            print(f"   ⚠️ Failed with Algo API CONTRACT_PRICE: {tp_error}")
+            sys.stdout.flush()
+            
+            # TRY #2: Algo API with MARK_PRICE
+            try:
+                print(f"   Attempting: Algo Order API with MARK_PRICE...")
+                sys.stdout.flush()
+                tp_order = place_algo_take_profit(
+                    symbol=symbol,
+                    side=take_profit_side,
+                    take_profit_price=take_profit_price,
+                    quantity=total_quantity,
+                    working_type='MARK_PRICE'
+                )
+                print(f"✅✅✅ TAKE PROFIT PLACED SUCCESSFULLY (ALGO API/MARK_PRICE) ✅✅✅")
+                print(f"   Order ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}")
+                print(f"{'='*70}\n")
+                sys.stdout.flush()
+            except Exception as tp_error_2:
+                print(f"⚠️⚠️⚠️ FAILED TO PLACE TAKE PROFIT ⚠️⚠️⚠️")
+                print(f"   Symbol: {symbol}")
+                print(f"   Stop loss is active but NO TAKE PROFIT!")
+                print(f"   Error: {tp_error_2}")
+                print(f"{'='*70}\n")
+                sys.stdout.flush()
+                # Continue anyway - stop loss is more critical
+        
         return True
 
     except Exception as e:
-        print(f"Error placing order: {e}")
+        print(f"\n❌❌❌ EXCEPTION IN PLACE_ORDER ❌❌❌")
+        print(f"Symbol: {symbol}")
+        print(f"Error: {e}")
+        print(f"Error Type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        print(f"{'='*70}\n")
+        sys.stdout.flush()
         return False
 
 def close_position(symbol, side, quantity, reason_to_close):
     try:
+        # First, get the position info to retrieve entry price
+        position_info = client.futures_position_information(symbol=symbol)
+        entry_price = 0
+        
+        # Find the correct position (LONG or SHORT)
+        for pos in position_info:
+            if float(pos['positionAmt']) != 0:
+                entry_price = float(pos['entryPrice'])
+                break
+        
+        # Execute the close order
         order = client.futures_create_order(
             symbol=symbol, side=side, type=ORDER_TYPE_MARKET, quantity=quantity, reduceOnly=True
         )
+        
+        exit_price = float(order['avgPrice'])
         new_usdt_balance = get_usdt_balance()
+        
+        # Calculate PnL and ROI
+        # For LONG positions, we close with SELL
+        # For SHORT positions, we close with BUY
+        if side == SIDE_SELL:  # Closing a LONG position
+            pnl = (exit_price - entry_price) * float(quantity)
+            position_side = "BUY"
+        else:  # Closing a SHORT position (side == SIDE_BUY)
+            pnl = (entry_price - exit_price) * float(quantity)
+            position_side = "SELL"
+        
+        # Calculate ROI (assume 10x leverage for ROI calculation)
+        # ROI = (PnL / Initial Margin) * 100
+        # Initial Margin = (Entry Price * Quantity) / Leverage
+        leverage = 10  # You can get this from position_info if needed
+        initial_margin = (entry_price * float(quantity)) / leverage
+        roi = (pnl / initial_margin * 100) if initial_margin > 0 else 0
+        
+        # Log to JSON file (existing functionality)
         log_trade({
             "symbol": symbol, "new_USDT_balance": new_usdt_balance,
             "closing_side": side, "closing_quantity": quantity,
-            "closing_price": float(order['avgPrice']), "reason_to_close": reason_to_close,
+            "closing_price": exit_price, "reason_to_close": reason_to_close,
             "timestamp": pd.Timestamp.now().isoformat()
         })
+        
+        # Log to CSV file with PnL and ROI for dashboard
+        log_trade_exit(
+            symbol=symbol,
+            side=position_side,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            quantity=float(quantity),
+            pnl=pnl,
+            exit_reason=reason_to_close,
+            roi=roi
+        )
+        
+        print(f"✅ Position closed for {symbol}. PnL: ${pnl:.2f}, ROI: {roi:.2f}%")
+        
     except Exception as e:
         print(f"Error closing position: {e}")      
         

@@ -2,11 +2,20 @@ from binance.client import Client
 from config.secrets import API_KEY, API_SECRET
 import numpy as np
 import pandas as pd
+import time
 from config.settings import VERBOSE_LOGGING
 # import pandas_ta as ta  # Temporarily disabled - not available
 from scipy.signal import find_peaks
 
 client = Client(API_KEY, API_SECRET)
+# Sync time with Binance servers to fix timestamp errors
+try:
+    server_time = client.get_server_time()
+    local_time = int(time.time() * 1000)
+    time_offset = server_time['serverTime'] - local_time
+    client.timestamp_offset = time_offset
+except Exception:
+    pass  # Silent fail on import
 
 PERIOD = 14
 K = 3

@@ -38,7 +38,7 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
         last_close = df_15m['close'].iloc[-1]
         
         # Relaxed: Allow entry anytime stoch is oversold and rising (not just on exact crossover)
-        stochastic_signal = (stoch_k_15m.iloc[-1] < 30 and stoch_k_15m.iloc[-1] > stoch_d_15m.iloc[-1])
+        stochastic_signal = (stoch_k_15m.iloc[-1] < 40 and stoch_k_15m.iloc[-1] > stoch_d_15m.iloc[-1])
         price_above_sma = last_close > price_sma
         rsi_is_bullish = last_rsi > 50
         hma_is_sloping_up = df_15m['hma_14'].iloc[-1] > df_15m['hma_14'].iloc[-2]
@@ -155,7 +155,7 @@ async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, s
         last_close = df_15m['close'].iloc[-1]
         
         # Relaxed: Allow entry anytime stoch is overbought and falling (not just on crossover)
-        stochastic_signal = (stoch_k_15m.iloc[-1] > 70 and stoch_k_15m.iloc[-1] < stoch_d_15m.iloc[-1])
+        stochastic_signal = (stoch_k_15m.iloc[-1] > 60 and stoch_k_15m.iloc[-1] < stoch_d_15m.iloc[-1])
         price_below_sma = last_close < price_sma
         rsi_is_bearish = last_rsi < 50
         hma_is_sloping_down = df_15m['hma_14'].iloc[-1] < df_15m['hma_14'].iloc[-2] # HMA check added

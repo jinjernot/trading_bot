@@ -5,8 +5,9 @@ from config.settings import *
 import numpy as np
 from scipy.signal import argrelextrema
 import time
+from functools import lru_cache
 
-from data.indicators import calculate_stoch, add_price_sma, PERIOD, K, D
+from data.indicators import calculate_stoch, add_price_sma, calculate_macd, PERIOD, K, D
 from src.state_manager import bot_state
 
 client = Client(API_KEY, API_SECRET)
@@ -37,7 +38,9 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
     CACHE_DURATION_MID = 1800
     CACHE_DURATION_LONG = 14400
 
-    df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='100')
+    # Use 300 bars for the short TF: 300 × 5min = 25h, enough for meaningful Fib swing detection
+    df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='300')
+    df_short = calculate_macd(df_short)  # Add MACD for short timeframe
 
     # Fetch 1h data for multi-timeframe stochastic confirmation
     df_1h, _, _ = fetch_klines(symbol, '1h', lookback='100')
@@ -49,6 +52,7 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
         stoch_k_mid, stoch_d_mid = calculate_stoch(df_mid['high'], df_mid['low'], df_mid['close'], PERIOD, K, D)
         df_mid = add_price_sma(df_mid, period=50)
         df_mid = add_price_sma(df_mid, period=200)  # Add SMA 200 for trend filter
+        df_mid = calculate_macd(df_mid)  # Add MACD for mid timeframe
         bot_state.cached_data_mid[symbol] = (df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid)
         bot_state.last_fetch_time_mid[symbol] = current_time
     else:
@@ -65,9 +69,17 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
 
     return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long, stoch_k_1h, stoch_d_1h
 
+_exchange_info_cache = None
+
 def get_symbol_info(symbol):
-    info = client.futures_exchange_info()
-    for s in info['symbols']:
+    """
+    Returns exchange info for a symbol. Cached globally to avoid repeated
+    exchange_info() API calls (50+ calls/cycle without this).
+    """
+    global _exchange_info_cache
+    if _exchange_info_cache is None:
+        _exchange_info_cache = client.futures_exchange_info()
+    for s in _exchange_info_cache['symbols']:
         if s['symbol'] == symbol:
             return s
     return None
@@ -90,16 +102,17 @@ def get_position(symbol, all_positions):
             if position_amt == 0:
                 return 0, 0, 0, 0, 0
 
-            current_price = get_market_price(symbol)
-            if current_price is None: return 0, 0, 0, 0, 0
+            current_price = float(pos.get('markPrice', 0))
+            if current_price == 0:
+                current_price = get_market_price(symbol)
+                if current_price is None: return 0, 0, 0, 0, 0
 
-            unrealized_profit = (current_price - entry_price) * position_amt
+            unrealized_profit = float(pos.get('unRealizedProfit', (current_price - entry_price) * position_amt))
             margin_used = abs(position_amt * entry_price) / LEVERAGE if LEVERAGE != 0 else 0
             roi = (unrealized_profit / margin_used) * 100 if margin_used != 0 else 0
             
             return position_amt, roi, unrealized_profit, margin_used, entry_price
     return 0, 0, 0, 0, 0
-
 def get_market_price(symbol):
     try:
         price = float(client.futures_mark_price(symbol=symbol)['markPrice'])
@@ -110,7 +123,7 @@ def get_market_price(symbol):
         return None
 
 def round_quantity(symbol, quantity):
-    symbol_info = get_symbol_info(symbol)
+    symbol_info = get_symbol_info( symbol )
     if not symbol_info: return quantity
     for filt in symbol_info['filters']:
         if filt['filterType'] == 'LOT_SIZE':
@@ -120,7 +133,7 @@ def round_quantity(symbol, quantity):
     return quantity
    
 def round_price(symbol, price):
-    symbol_info = get_symbol_info(symbol)
+    symbol_info = get_symbol_info( symbol )
     if not symbol_info: return price
     for filt in symbol_info['filters']:
         if filt['filterType'] == 'PRICE_FILTER':
@@ -136,10 +149,53 @@ def fetch_klines(symbol, interval, lookback='100'):
     return df, df['low'].min(), df['high'].max()
 
 
-def get_funding_rate(symbol):
+def get_all_funding_rates():
+    """
+    Fetches the latest funding rates for all symbols in a single API call.
+    """
     try:
-        funding_rate_history = client.futures_funding_rate(symbol=symbol, limit=1)
-        return float(funding_rate_history[0]['fundingRate']) if funding_rate_history else 0.0
+        premium_index = client.futures_mark_price()
+        return {item['symbol']: float(item['lastFundingRate']) for item in premium_index if 'lastFundingRate' in item}
+    except Exception as e:
+        print(f"Error getting all funding rates: {e}")
+        return {}
+
+def get_funding_rate(symbol):
+    """
+    Returns the current funding rate for a single symbol.
+    Used by close_position.py for per-trade funding rate exit checks.
+    Falls back to get_all_funding_rates() to avoid extra API calls.
+    """
+    try:
+        rates = get_all_funding_rates()
+        return rates.get(symbol, 0.0)
     except Exception as e:
         print(f"Error getting funding rate for {symbol}: {e}")
         return 0.0
+
+def get_global_btc_trend():
+    try:
+        from data.indicators import add_price_sma, calculate_adx
+        df_btc, _, _ = fetch_klines('BTCUSDT', PRIMARY_TIMEFRAME, lookback='200')
+        df_btc = add_price_sma(df_btc, period=50)
+        df_btc = add_price_sma(df_btc, period=200)
+        df_btc = calculate_adx(df_btc)
+        
+        last_close = df_btc['close'].iloc[-1]
+        sma50 = df_btc['price_sma_50'].iloc[-1]
+        sma200 = df_btc['price_sma_200'].iloc[-1]
+        adx = df_btc['ADX'].iloc[-1]
+        
+        trend = 'NEUTRAL'
+        if adx > 20:
+            if last_close > sma50 and last_close > sma200:
+                trend = 'BULLISH'
+            elif last_close < sma50 and last_close < sma200:
+                trend = 'BEARISH'
+        
+        bot_state.global_btc_trend = trend
+        return trend
+    except Exception as e:
+        print(f"Error getting BTC trend: {e}")
+        bot_state.global_btc_trend = 'NEUTRAL'
+        return 'NEUTRAL'

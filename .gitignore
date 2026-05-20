@@ -1,7 +1,46 @@
-.venv
+# ── Virtual environments ──────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Secrets & credentials (NEVER commit) ─────────────────────────
 config
+.env
+.env.*
+
+# ── Python cache ──────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Data & logs (large / generated / sensitive) ───────────────────
 trade_logs.json
-old
-__pycache__
-*.json
+logs/
 *.csv
+data/historical_miner_export.csv
+data/rejected_signals.csv
+
+# ── JSON config exports (generated artifacts) ────────────────────
+*.json
+# Exception: keep package/project json files if you ever add them
+# !package.json
+
+# ── Archive folder (old/dead code, not for repo) ─────────────────
+_archive/
+old/
+
+# ── Static assets that don't belong in source control ────────────
+static/ss.png
+static/*.png
+static/*.jpg
+
+# ── Editor & OS clutter ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store

@@ -8,159 +8,231 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
-
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='ss.png') }}">
 </head>
 
 <body class="text-gray-100">
-    <div class="container mx-auto px-4 md:px-6 lg:px-8 py-8">
+    <div class="container mx-auto px-3 py-3 max-w-[1920px]">
         <!-- Header -->
-        <header class="mb-12 fade-in">
-            <div class="flex items-center justify-between mb-8">
-                <div>
-                    <h1
-                        class="text-5xl font-bold pb-2 glow-text bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                        Brigadier
-                    </h1>
+        <header class="mb-4 fade-in">
+            <div class="flex items-center justify-between mb-3 border-b border-gray-800 pb-2">
+                <div class="flex items-center gap-3">
+                    <img src="{{ url_for('static', filename='ss.png') }}" class="h-8 w-auto drop-shadow-[0_0_10px_rgba(59,130,246,0.6)]" alt="Logo">
+                    <h1 class="text-2xl font-black tracking-[0.2em] uppercase bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 drop-shadow-[0_0_12px_rgba(99,102,241,0.4)]">BRIGADIER</h1>
+                    <span class="px-1.5 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] font-mono text-gray-400">v2.1</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-3 h-3 bg-green-400 rounded-full pulse-dot"></div>
-                    <span class="text-sm text-gray-400">Live</span>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <button id="sync-btn" onclick="syncBinanceTrades()"
+                            class="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 hover:border-blue-400 text-blue-300 hover:text-blue-100 text-xs font-bold uppercase tracking-wider rounded transition-all duration-200 active:scale-95">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            SYNC
+                        </button>
+                        <span id="sync-status" class="text-xs text-gray-500 font-mono w-24 text-right"></span>
+                    </div>
+                    <div class="h-5 w-px bg-gray-700"></div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2.5 h-2.5 bg-green-500 rounded-full pulse-dot"></div>
+                        <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">System Online</span>
+                    </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="gradient-card p-6 rounded-2xl">
-                    <div class="text-gray-400 text-sm font-medium mb-2">Account Balance</div>
-                    <div id="balance"
-                        class="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-                        Loading...
-                    </div>
+            <!-- 8-Column Super Dense Metrics Grid -->
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Account Balance</div>
+                    <div id="balance" class="text-xl font-mono font-bold text-white">Loading...</div>
                 </div>
-                <div class="gradient-card p-6 rounded-2xl">
-                    <div class="text-gray-400 text-sm font-medium mb-2">Active Positions</div>
-                    <div id="active-count" class="text-3xl font-bold text-blue-400">-</div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Active Positions</div>
+                    <div id="active-count" class="text-xl font-mono font-bold text-blue-400">-</div>
                 </div>
-                <div class="gradient-card p-6 rounded-2xl">
-                    <div class="text-gray-400 text-sm font-medium mb-2">Total P&L</div>
-                    <div id="total-pnl" class="text-3xl font-bold">-</div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Global BTC Trend</div>
+                    <div id="btc-trend" class="text-xl font-mono font-bold text-gray-400">-</div>
+                </div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Total P&L</div>
+                    <div id="total-pnl" class="text-xl font-mono font-bold">-</div>
+                </div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Win Rate</div>
+                    <div id="win-rate" class="text-xl font-mono font-bold text-green-400">-</div>
+                </div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Total Trades</div>
+                    <div id="total-trades" class="text-xl font-mono font-bold text-blue-400">-</div>
+                </div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Avg Win</div>
+                    <div id="avg-win" class="text-xl font-mono font-bold text-green-400">-</div>
+                </div>
+                <div class="gradient-card p-3">
+                    <div class="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Avg Loss</div>
+                    <div id="avg-loss" class="text-xl font-mono font-bold text-red-400">-</div>
                 </div>
             </div>
         </header>
 
-        <!-- Performance Stats -->
-        <section class="mb-12 fade-in" style="animation-delay: 0.1s">
-            <h2
-                class="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                Performance Metrics
-            </h2>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <div class="stat-card p-5 rounded-xl">
-                    <div class="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-2">Win Rate</div>
-                    <div id="win-rate" class="text-2xl font-bold text-green-400">-</div>
-                </div>
-                <div class="stat-card p-5 rounded-xl">
-                    <div class="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-2">Total Trades</div>
-                    <div id="total-trades" class="text-2xl font-bold text-blue-400">-</div>
-                </div>
-                <div class="stat-card p-5 rounded-xl">
-                    <div class="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-2">Avg Win</div>
-                    <div id="avg-win" class="text-2xl font-bold text-green-400">-</div>
-                </div>
-                <div class="stat-card p-5 rounded-xl">
-                    <div class="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-2">Avg Loss</div>
-                    <div id="avg-loss" class="text-2xl font-bold text-red-400">-</div>
-                </div>
-            </div>
-
-            <!-- Equity Curve -->
-            <div class="stat-card p-8 rounded-2xl">
-                <h3 class="text-xl font-bold mb-6 text-gray-200">Equity Curve</h3>
-                <canvas id="equity-chart" height="80"></canvas>
-            </div>
-        </section>
-
-        <!-- Active Trades -->
-        <section class="mb-12 fade-in" style="animation-delay: 0.2s">
-            <h2
-                class="text-3xl font-bold mb-6 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                Active Trades
-            </h2>
-            <div class="stat-card rounded-2xl overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead>
-                            <tr class="text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
-                                <th class="px-6 py-4">Symbol</th>
-                                <th class="px-6 py-4">Side</th>
-                                <th class="px-6 py-4 text-right">Size</th>
-                                <th class="px-6 py-4 text-right">Entry</th>
-                                <th class="px-6 py-4 text-right">Mark</th>
-                                <th class="px-6 py-4 text-right">P&L</th>
-                                <th class="px-6 py-4 text-right">ROI%</th>
-                            </tr>
-                        </thead>
-                        <tbody id="active-trades-body" class="divide-y divide-gray-700/50">
-                            <tr>
-                                <td colspan="7" class="px-6 py-12 text-center text-gray-500">No active trades</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- Trade History -->
-        <section class="mb-12 fade-in" style="animation-delay: 0.3s">
-            <h2
-                class="text-3xl font-bold mb-6 bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Recent Closed Trades
-            </h2>
-            <div class="stat-card rounded-2xl overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead>
-                            <tr class="text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
-                                <th class="px-6 py-4">Time</th>
-                                <th class="px-6 py-4">Symbol</th>
-                                <th class="px-6 py-4">Side</th>
-                                <th class="px-6 py-4 text-right">Entry</th>
-                                <th class="px-6 py-4 text-right">Exit</th>
-                                <th class="px-6 py-4 text-right">P&L</th>
-                                <th class="px-6 py-4 text-right">ROI%</th>
-                                <th class="px-6 py-4">Exit Reason</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-body" class="divide-y divide-gray-700/50">
-                            <tr>
-                                <td colspan="8" class="px-6 py-12 text-center text-gray-500">No trade history</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- Rejected Signals -->
-        <section class="fade-in" style="animation-delay: 0.4s">
-            <h2
-                class="text-3xl font-bold mb-6 bg-gradient-to-r from-yellow-400 to-orange-400 bg-clip-text text-transparent">
-                Rejected Signals Analysis
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="stat-card p-8 rounded-2xl">
-                    <h3 class="text-lg font-bold mb-6 text-gray-200">Top Rejection Reasons</h3>
-                    <div id="rejection-reasons" class="space-y-3">
-                        <div class="text-gray-500">Loading...</div>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+            <!-- Left Column: Tables (Spans 3) -->
+            <div class="lg:col-span-3 flex flex-col gap-4">
+                <!-- Active Trades -->
+                <section class="fade-in" style="animation-delay: 0.1s">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 border-l-2 border-blue-500 pl-2">Active Trades</h2>
+                    <div class="stat-card overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-xs font-bold uppercase tracking-wider text-gray-500 bg-gray-800/50 border-b border-gray-700">
+                                        <th class="px-3 py-2">Symbol</th>
+                                        <th class="px-3 py-2">Side</th>
+                                        <th class="px-3 py-2 text-right">Size</th>
+                                        <th class="px-3 py-2 text-right">Entry</th>
+                                        <th class="px-3 py-2 text-right">Mark</th>
+                                        <th class="px-3 py-2 text-right">P&L</th>
+                                        <th class="px-3 py-2 text-right">ROI%</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="active-trades-body" class="divide-y divide-gray-800 font-mono">
+                                    <tr><td colspan="7" class="px-3 py-6 text-center text-sm text-gray-500 font-sans">No active trades</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-                <div class="stat-card p-8 rounded-2xl">
-                    <h3 class="text-lg font-bold mb-6 text-gray-200">Recent Rejections (Last 10)</h3>
-                    <div id="recent-rejections" class="space-y-3 text-sm">
-                        <div class="text-gray-500">Loading...</div>
+                </section>
+
+                <!-- Trade History -->
+                <section class="fade-in flex flex-col flex-grow" style="animation-delay: 0.2s">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 border-l-2 border-cyan-500 pl-2">Recent Executions</h2>
+                    <div class="stat-card overflow-hidden flex flex-col flex-grow">
+                        <div class="overflow-y-auto overflow-x-auto flex-grow" style="max-height: calc(100vh - 280px);">
+                            <table class="w-full text-sm">
+                                <thead class="sticky top-0 z-10">
+                                    <tr class="text-left text-xs font-bold uppercase tracking-wider text-gray-500 bg-gray-900 border-b border-gray-700">
+                                        <th class="px-3 py-2">Time</th>
+                                        <th class="px-3 py-2">Symbol</th>
+                                        <th class="px-3 py-2">Side</th>
+                                        <th class="px-3 py-2 text-right">Entry</th>
+                                        <th class="px-3 py-2 text-right">Exit</th>
+                                        <th class="px-3 py-2 text-right">P&L</th>
+                                        <th class="px-3 py-2 text-right">ROI%</th>
+                                        <th class="px-3 py-2">Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-body" class="divide-y divide-gray-800 font-mono">
+                                    <tr><td colspan="8" class="px-3 py-6 text-center text-sm text-gray-500 font-sans">No trade history</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                </section>
             </div>
-        </section>
+
+            <!-- Right Column: Charts & Logs (Spans 1) -->
+            <div class="flex flex-col gap-4">
+                <!-- System Control Panel -->
+                <section class="fade-in" style="animation-delay: 0.25s">
+                    <div class="flex justify-between items-center mb-2 border-l-2 border-purple-500 pl-2">
+                        <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">Live Engine Controls</h2>
+                        <span id="config-status" class="text-xs text-gray-500 font-mono transition-colors"></span>
+                    </div>
+                    <div class="stat-card p-4 space-y-3">
+                        
+                        <!-- MACD Toggle -->
+                        <div class="flex items-center justify-between group">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-200">MACD Confirmation</div>
+                                <div class="text-[10px] text-gray-500">Require MACD alignment on 5m chart</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-macd" onchange="updateToggles()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Stoch Crossover Toggle -->
+                        <div class="flex items-center justify-between group">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-200">Stochastic Crossover</div>
+                                <div class="text-[10px] text-gray-500">Require Stochastic K crossing above D</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-stoch" onchange="updateToggles()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- 1H Alignment Toggle -->
+                        <div class="flex items-center justify-between group">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-200">1H Macro Alignment</div>
+                                <div class="text-[10px] text-gray-500">Require 1H Stochastic support</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-1h" onchange="updateToggles()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- SMA 200 Toggle -->
+                        <div class="flex items-center justify-between group">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-200">SMA-200 Filter</div>
+                                <div class="text-[10px] text-gray-500">Block counter-trend trades</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-sma" onchange="updateToggles()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <!-- Time Filter Toggle -->
+                        <div class="flex items-center justify-between group">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-200">Session Filter</div>
+                                <div class="text-[10px] text-gray-500">Only trade during volatile hours</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-time" onchange="updateToggles()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                    </div>
+                </section>
+
+                <!-- Equity Curve -->
+                <section class="fade-in" style="animation-delay: 0.3s">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 border-l-2 border-green-500 pl-2">Equity Curve</h2>
+                    <div class="stat-card p-4">
+                        <div style="position: relative; height: 180px; width: 100%;">
+                            <canvas id="equity-chart"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- System Analytics -->
+                <section class="fade-in flex flex-col flex-grow" style="animation-delay: 0.4s">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 border-l-2 border-yellow-500 pl-2">System Analytics</h2>
+                    <div class="stat-card p-4 mb-4">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Top Rejections</h3>
+                        <div id="rejection-reasons" class="space-y-2">
+                            <div class="text-gray-500 text-xs">Loading...</div>
+                        </div>
+                    </div>
+                    <div class="stat-card p-4 flex flex-col flex-grow">
+                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Live Log</h3>
+                        <div id="recent-rejections" class="space-y-2 text-xs font-mono overflow-y-auto flex-grow" style="max-height: calc(100vh - 560px);">
+                            <div class="text-gray-500">Loading...</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -169,10 +241,12 @@
         async function fetchAll() {
             await Promise.all([
                 fetchBalance(),
+                fetchBotState(),
                 fetchActiveTrades(),
                 fetchPerformance(),
                 fetchTradeHistory(),
-                fetchRejections()
+                fetchRejections(),
+                fetchToggles()
             ]);
         }
 
@@ -182,6 +256,24 @@
             document.getElementById('balance').textContent = `$${data.usdt_balance.toFixed(2)}`;
         }
 
+        async function fetchBotState() {
+            try {
+                const res = await fetch('/api/bot-state');
+                const data = await res.json();
+                const trendEl = document.getElementById('btc-trend');
+                trendEl.textContent = data.global_btc_trend;
+                if (data.global_btc_trend === 'BULLISH') {
+                    trendEl.className = 'text-lg font-mono font-bold text-green-400';
+                } else if (data.global_btc_trend === 'BEARISH') {
+                    trendEl.className = 'text-xl font-mono font-bold text-red-400';
+                } else {
+                    trendEl.className = 'text-xl font-mono font-bold text-yellow-400';
+                }
+            } catch (error) {
+                console.error('Failed to fetch bot state:', error);
+            }
+        }
+
         async function fetchActiveTrades() {
             const res = await fetch('/api/active-trades');
             const trades = await res.json();
@@ -189,7 +281,7 @@
 
             const tbody = document.getElementById('active-trades-body');
             if (trades.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-12 text-center text-gray-500">No active trades</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="px-3 py-6 text-center text-sm text-gray-500 font-sans">No active trades</td></tr>';
                 return;
             }
 
@@ -198,13 +290,13 @@
                 const sideColor = side === 'LONG' ? 'text-green-400' : 'text-red-400';
                 const pnlColor = t.unrealized_profit >= 0 ? 'text-green-400' : 'text-red-400';
                 return `<tr class="border-b border-gray-700/50 hover:bg-gray-700/20">
-                <td class="px-6 py-4 font-bold text-white">${t.symbol}</td>
-                <td class="px-6 py-4 ${sideColor} font-bold">${side}</td>
-                <td class="px-6 py-4 text-right text-gray-300">${Math.abs(t.position_amt).toFixed(3)}</td>
-                <td class="px-6 py-4 text-right text-gray-300">$${t.entry_price.toFixed(4)}</td>
-                <td class="px-6 py-4 text-right text-gray-300">$${t.mark_price.toFixed(4)}</td>
-                <td class="px-6 py-4 text-right ${pnlColor} font-bold">$${t.unrealized_profit.toFixed(2)}</td>
-                <td class="px-6 py-4 text-right ${pnlColor} font-bold">${t.roi.toFixed(2)}%</td>
+                <td class="px-3 py-2.5 font-bold text-white">${t.symbol}</td>
+                <td class="px-3 py-2.5 ${sideColor} font-bold">${side}</td>
+                <td class="px-3 py-2.5 text-right text-gray-300">${Math.abs(t.position_amt).toFixed(3)}</td>
+                <td class="px-3 py-2.5 text-right text-gray-300">$${t.entry_price.toFixed(4)}</td>
+                <td class="px-3 py-2.5 text-right text-gray-300">$${t.mark_price.toFixed(4)}</td>
+                <td class="px-3 py-2.5 text-right ${pnlColor} font-bold">$${t.unrealized_profit.toFixed(2)}</td>
+                <td class="px-3 py-2.5 text-right ${pnlColor} font-bold">${t.roi.toFixed(2)}%</td>
             </tr>`;
             }).join('');
         }
@@ -214,12 +306,12 @@
             const data = await res.json();
 
             if (data.message) {
-                document.getElementById('total-pnl').textContent = data.message;
+                document.getElementById('total-pnl').textContent = "-";
                 return;
             }
 
             document.getElementById('total-pnl').textContent = `$${data.total_pnl}`;
-            document.getElementById('total-pnl').className = `text-3xl font-bold ${data.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`;
+            document.getElementById('total-pnl').className = `text-xl font-mono font-bold ${data.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`;
             document.getElementById('win-rate').textContent = `${data.win_rate}%`;
             document.getElementById('total-trades').textContent = data.total_trades;
             document.getElementById('avg-win').textContent = `$${data.avg_win}`;
@@ -241,8 +333,8 @@
                             backgroundColor: 'rgba(34, 197, 94, 0.1)',
                             tension: 0.4,
                             fill: true,
-                            pointRadius: 3,
-                            pointHoverRadius: 6,
+                            pointRadius: 2,
+                            pointHoverRadius: 4,
                             borderWidth: 2
                         }]
                     },
@@ -253,7 +345,9 @@
                             legend: { display: false },
                             tooltip: {
                                 backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                                padding: 12,
+                                padding: 8,
+                                titleFont: { size: 10 },
+                                bodyFont: { size: 11 },
                                 titleColor: '#f1f5f9',
                                 bodyColor: '#e2e8f0',
                                 borderColor: 'rgba(59, 130, 246, 0.5)',
@@ -262,13 +356,14 @@
                         },
                         scales: {
                             x: {
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' },
-                                ticks: { color: '#94a3b8' }
+                                grid: { color: 'rgba(148, 163, 184, 0.05)' },
+                                ticks: { color: '#64748b', font: { size: 9 }, maxRotation: 0 }
                             },
                             y: {
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                                grid: { color: 'rgba(148, 163, 184, 0.05)' },
                                 ticks: {
-                                    color: '#94a3b8',
+                                    color: '#64748b',
+                                    font: { size: 9 },
                                     callback: value => '$' + value.toFixed(2)
                                 }
                             }
@@ -284,22 +379,22 @@
 
             const tbody = document.getElementById('history-body');
             if (!data.trades || data.trades.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-12 text-center text-gray-500">No trade history</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-sm text-gray-500 font-sans">No trade history</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = data.trades.slice(-20).reverse().map(t => {
+            tbody.innerHTML = data.trades.slice(-30).reverse().map(t => {
                 const pnlColor = t.pnl >= 0 ? 'text-green-400' : 'text-red-400';
                 const sideColor = t.side === 'LONG' ? 'text-green-400' : 'text-red-400';
                 return `<tr class="border-b border-gray-700/50 hover:bg-gray-700/20">
-                <td class="px-6 py-4 text-sm text-gray-400">${new Date(t.timestamp).toLocaleString()}</td>
-                <td class="px-6 py-4 font-bold text-white">${t.symbol}</td>
-                <td class="px-6 py-4 ${sideColor} font-semibold">${t.side}</td>
-                <td class="px-6 py-4 text-right text-gray-300">$${t.entry_price.toFixed(4)}</td>
-                <td class="px-6 py-4 text-right text-gray-300">$${t.exit_price.toFixed(4)}</td>
-                <td class="px-6 py-4 text-right ${pnlColor} font-bold">$${t.pnl.toFixed(2)}</td>
-                <td class="px-6 py-4 text-right ${pnlColor} font-bold">${t.roi.toFixed(2)}%</td>
-                <td class="px-6 py-4 text-sm text-gray-400">${t.exit_reason}</td>
+                <td class="px-3 py-2 text-xs text-gray-400">${new Date(t.timestamp).toLocaleString()}</td>
+                <td class="px-3 py-2 font-bold text-white">${t.symbol}</td>
+                <td class="px-3 py-2 ${sideColor} font-semibold">${t.side}</td>
+                <td class="px-3 py-2 text-right text-gray-300">$${t.entry_price.toFixed(4)}</td>
+                <td class="px-3 py-2 text-right text-gray-300">$${t.exit_price.toFixed(4)}</td>
+                <td class="px-3 py-2 text-right ${pnlColor} font-bold">$${t.pnl.toFixed(2)}</td>
+                <td class="px-3 py-2 text-right ${pnlColor} font-bold">${t.roi.toFixed(2)}%</td>
+                <td class="px-3 py-2 text-xs text-gray-400 truncate max-w-[120px]">${t.exit_reason}</td>
             </tr>`;
             }).join('');
         }
@@ -312,35 +407,119 @@
             const reasonsDiv = document.getElementById('rejection-reasons');
             if (data.reason_counts && Object.keys(data.reason_counts).length > 0) {
                 reasonsDiv.innerHTML = Object.entries(data.reason_counts)
-                    .slice(0, 5)
+                    .slice(0, 6)
                     .map(([reason, count]) => `
-                    <div class="flex justify-between items-center p-3 bg-gray-700/30 rounded-lg hover:bg-gray-700/50 transition">
-                        <span class="text-sm text-gray-300">${reason}</span>
-                        <span class="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-xs font-semibold">${count}</span>
+                    <div class="flex justify-between items-center p-2.5 bg-gray-700/30 rounded hover:bg-gray-700/50 transition">
+                        <span class="text-xs text-gray-300 truncate mr-2">${reason}</span>
+                        <span class="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded text-xs font-semibold">${count}</span>
                     </div>
                 `).join('');
             } else {
-                reasonsDiv.innerHTML = '<div class="text-gray-500">No rejections yet</div>';
+                reasonsDiv.innerHTML = '<div class="text-gray-500 text-xs">No rejections yet</div>';
             }
 
             // Recent rejections
             const recentDiv = document.getElementById('recent-rejections');
             if (data.signals && data.signals.length > 0) {
-                recentDiv.innerHTML = data.signals.slice(-10).reverse().map(s => `
-                <div class="p-3 border-l-2 border-yellow-500 bg-yellow-500/5 rounded-r-lg hover:bg-yellow-500/10 transition">
-                    <div class="font-semibold text-white">${s.Symbol} ${s.Attempted_Side}</div>
-                    <div class="text-xs text-gray-400 mt-1">${s.Rejection_Reason}</div>
+                recentDiv.innerHTML = data.signals.slice(-15).reverse().map(s => `
+                <div class="p-2.5 border-l-2 border-yellow-500 bg-yellow-500/5 rounded-r hover:bg-yellow-500/10 transition mb-1">
+                    <div class="font-semibold text-white text-xs">${s.Symbol} ${s.Attempted_Side}</div>
+                    <div class="text-xs text-gray-400 mt-0.5 truncate">${s.Rejection_Reason}</div>
                 </div>
             `).join('');
             } else {
-                recentDiv.innerHTML = '<div class="text-gray-500">No rejections yet</div>';
+                recentDiv.innerHTML = '<div class="text-gray-500 text-xs">No rejections yet</div>';
+            }
+        }
+
+        async function fetchToggles() {
+            try {
+                const res = await fetch('/api/strategy-toggles');
+                const data = await res.json();
+                document.getElementById('toggle-macd').checked = data.require_macd;
+                document.getElementById('toggle-stoch').checked = data.require_stoch_crossover;
+                document.getElementById('toggle-1h').checked = data.require_1h_alignment;
+                document.getElementById('toggle-sma').checked = data.use_sma_200;
+                document.getElementById('toggle-time').checked = data.use_time_filter;
+            } catch (error) {
+                console.error('Failed to fetch toggles:', error);
+            }
+        }
+
+        async function updateToggles() {
+            const statusEl = document.getElementById('config-status');
+            statusEl.textContent = 'Syncing...';
+            statusEl.className = 'text-xs text-yellow-500 font-mono animate-pulse transition-colors';
+            
+            const payload = {
+                require_macd: document.getElementById('toggle-macd').checked,
+                require_stoch_crossover: document.getElementById('toggle-stoch').checked,
+                require_1h_alignment: document.getElementById('toggle-1h').checked,
+                use_sma_200: document.getElementById('toggle-sma').checked,
+                use_time_filter: document.getElementById('toggle-time').checked
+            };
+            
+            try {
+                const res = await fetch('/api/strategy-toggles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) {
+                    statusEl.textContent = 'Linked';
+                    statusEl.className = 'text-xs text-green-400 font-mono transition-colors';
+                    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                } else {
+                    throw new Error('Update failed');
+                }
+            } catch (error) {
+                statusEl.textContent = 'Error';
+                statusEl.className = 'text-xs text-red-400 font-mono transition-colors';
+                console.error(error);
             }
         }
 
         // Initial load and refresh
         fetchAll();
         setInterval(fetchAll, 30000); // Refresh every 30s
+
+        async function syncBinanceTrades() {
+            const btn = document.getElementById('sync-btn');
+            const status = document.getElementById('sync-status');
+            
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+            status.textContent = 'Syncing...';
+            status.className = 'text-xs text-yellow-500 font-mono animate-pulse w-24 text-right';
+
+            try {
+                const res = await fetch('/api/sync-trades', { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    if (data.backfilled_count > 0) {
+                        status.textContent = `+${data.backfilled_count} trades`;
+                        status.className = 'text-xs text-green-400 font-mono w-24 text-right';
+                        fetchAll(); // Refresh dashboard data immediately
+                    } else {
+                        status.textContent = `Up to date`;
+                        status.className = 'text-xs text-blue-400 font-mono w-24 text-right';
+                    }
+                    setTimeout(() => { status.textContent = ''; }, 5000);
+                } else {
+                    status.textContent = `Error!`;
+                    status.className = 'text-xs text-red-400 font-mono w-24 text-right';
+                }
+            } catch (error) {
+                status.textContent = `Failed`;
+                status.className = 'text-xs text-red-400 font-mono w-24 text-right';
+                console.error('Sync failed:', error);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50');
+            }
+        }
     </script>
 </body>
-
 </html>

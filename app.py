@@ -1,12 +1,20 @@
 import time
 import os
+import logging
 import pandas as pd
 from threading import Lock
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from binance.client import Client
 from data.get_data import get_usdt_balance
 from config.secrets import API_KEY, API_SECRET
+from config.settings import strategy_toggles, VERBOSE_LOGGING
 from src.state_manager import bot_state
+from src.reconciler import reconcile_trades
+from config.symbols import symbols
+
+# Silence Werkzeug/Flask HTTP request logs to keep terminal quiet
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 client = Client(API_KEY, API_SECRET)
@@ -16,7 +24,8 @@ try:
     local_time = int(time.time() * 1000)
     time_offset = server_time['serverTime'] - local_time
     client.timestamp_offset = time_offset
-    print(f"⏰ Dashboard: Time synced with Binance. Offset: {time_offset}ms")
+    if VERBOSE_LOGGING:
+        print(f"⏰ Dashboard: Time synced with Binance. Offset: {time_offset}ms")
 except Exception as e:
     print(f"⚠️ Dashboard: Could not sync time with Binance: {e}")
 
@@ -37,7 +46,8 @@ REJECTED_LOG = 'logs/rejected_signals.csv'
 def refresh_cache():
     """Fetches all necessary data from the Binance API and updates the global CACHE."""
     global CACHE
-    print("CACHE STALE. Refreshing data from Binance API...")
+    if VERBOSE_LOGGING:
+        print("CACHE STALE. Refreshing data from Binance API...")
     try:
         all_positions = client.futures_position_information()
         
@@ -60,7 +70,8 @@ def refresh_cache():
         CACHE['active_trades'] = current_active_trades
         CACHE['account_balance'] = {'usdt_balance': current_balance}
         CACHE['last_fetch_timestamp'] = time.time()
-        print("Cache refreshed successfully.")
+        if VERBOSE_LOGGING:
+            print("Cache refreshed successfully.")
     except Exception as e:
         print(f"!!! CRITICAL: FAILED to refresh cache from Binance API: {e}")
         CACHE['last_fetch_timestamp'] = time.time() - CACHE_LIFESPAN + 5
@@ -76,8 +87,10 @@ def check_cache_freshness():
                 cache_lock.release()
 
 # --- API Endpoints ---
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def dashboard():
+    if request.method == 'POST':
+        return jsonify({'status': 'ok'})  # Handle POST gracefully to prevent 405 errors
     return render_template('index.html')
 
 @app.route('/api/active-trades')
@@ -88,6 +101,12 @@ def get_active_trades_data():
 def get_account_balance():
     return jsonify(CACHE['account_balance'])
 
+@app.route('/api/bot-state')
+def get_bot_state():
+    return jsonify({
+        'global_btc_trend': getattr(bot_state, 'global_btc_trend', 'NEUTRAL')
+    })
+
 @app.route('/api/trade-history')
 def get_trade_history():
     """Get completed trades from CSV log"""
@@ -95,7 +114,8 @@ def get_trade_history():
         if not os.path.exists(TRADE_LOG):
             return jsonify({'trades': [], 'message': 'No trade history found'})
         
-        df = pd.read_csv(TRADE_LOG)
+        df = pd.read_csv(TRADE_LOG, encoding_errors='replace', low_memory=False)
+        df = df.drop_duplicates(subset=['Timestamp', 'Symbol', 'Side'])
         exits = df[df['Side'].str.contains('EXIT', na=False)]
         
         trades = []
@@ -122,7 +142,8 @@ def get_performance():
         if not os.path.exists(TRADE_LOG):
             return jsonify({'message': 'No trades logged yet'})
         
-        df = pd.read_csv(TRADE_LOG)
+        df = pd.read_csv(TRADE_LOG, encoding_errors='replace', low_memory=False)
+        df = df.drop_duplicates(subset=['Timestamp', 'Symbol', 'Side'])
         exits = df[df['Side'].str.contains('EXIT', na=False)]
         
         if len(exits) == 0:
@@ -162,9 +183,9 @@ def get_rejected_signals():
         if not os.path.exists(REJECTED_LOG):
             return jsonify({'signals': []})
         
-        df = pd.read_csv(REJECTED_LOG)
+        df = pd.read_csv(REJECTED_LOG, encoding_errors='replace', on_bad_lines='skip', low_memory=False)
         # Get last 50 rejected signals
-        recent = df.tail(50)
+        recent = df.tail(50).fillna('N/A')
         
         signals = recent.to_dict('records')
         
@@ -177,6 +198,68 @@ def get_rejected_signals():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategy-toggles', methods=['GET'])
+def get_strategy_toggles():
+    """Get current strategy toggle states"""
+    return jsonify({
+        'require_macd': strategy_toggles.REQUIRE_MACD_CONFIRMATION,
+        'require_stoch_crossover': strategy_toggles.REQUIRE_STOCH_CROSSOVER,
+        'require_1h_alignment': strategy_toggles.REQUIRE_1H_STOCH_ALIGNMENT,
+        'use_sma_200': strategy_toggles.USE_SMA_200_FILTER,
+        'use_time_filter': strategy_toggles.USE_TIME_FILTER
+    })
+
+@app.route('/api/strategy-toggles', methods=['POST'])
+def update_strategy_toggles():
+    """Update strategy toggle states"""
+    try:
+        data = request.json
+        
+        if 'require_macd' in data:
+            strategy_toggles.REQUIRE_MACD_CONFIRMATION = bool(data['require_macd'])
+            print(f"📊 Toggle: MACD confirmation = {strategy_toggles.REQUIRE_MACD_CONFIRMATION}")
+        
+        if 'require_stoch_crossover' in data:
+            strategy_toggles.REQUIRE_STOCH_CROSSOVER = bool(data['require_stoch_crossover'])
+            print(f"📊 Toggle: Stochastic crossover = {strategy_toggles.REQUIRE_STOCH_CROSSOVER}")
+        
+        if 'require_1h_alignment' in data:
+            strategy_toggles.REQUIRE_1H_STOCH_ALIGNMENT = bool(data['require_1h_alignment'])
+            print(f"📊 Toggle: 1H alignment = {strategy_toggles.REQUIRE_1H_STOCH_ALIGNMENT}")
+        
+        if 'use_sma_200' in data:
+            strategy_toggles.USE_SMA_200_FILTER = bool(data['use_sma_200'])
+            print(f"📊 Toggle: SMA 200 filter = {strategy_toggles.USE_SMA_200_FILTER}")
+        
+        if 'use_time_filter' in data:
+            strategy_toggles.USE_TIME_FILTER = bool(data['use_time_filter'])
+            print(f"📊 Toggle: Time filter = {strategy_toggles.USE_TIME_FILTER}")
+        
+        return jsonify({'status': 'success', 'message': 'Toggles updated'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/sync-trades', methods=['POST'])
+def sync_trades():
+    """
+    Manually trigger a Binance trade history sync.
+    Backfills any trades that closed while the bot was offline
+    (e.g. TP or SL hit, or manual close on Binance).
+    Safe to call multiple times — deduplication prevents double-counting.
+    """
+    try:
+        result = reconcile_trades(symbols, verbose=True)
+        return jsonify({
+            'status':           'success',
+            'backfilled_count': result['backfilled_count'],
+            'skipped_count':    result['skipped_count'],
+            'scan_from':        result['scan_from'],
+            'details':          result['details'],
+            'errors':           result['errors']
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

@@ -2,6 +2,8 @@ import csv
 import os
 from datetime import datetime
 import pandas as pd
+import json
+from src.state_manager import bot_state
 
 # Define log file paths
 TRADE_LOG_CSV = 'logs/trade_log.csv'
@@ -25,7 +27,7 @@ def log_trade_entry(symbol, side, entry_price, quantity, stop_loss, indicators, 
             writer.writerow([
                 'Timestamp', 'Symbol', 'Side', 'Entry_Price', 'Quantity', 'Stop_Loss',
                 'ADX', 'Stoch_K', 'Stoch_D', 'RSI', 'Price_vs_SMA50', 'HMA_Slope',
-                'ATR', 'Balance_USDT', 'Risk_Percent', 'Notes'
+                'ATR', 'Balance_USDT', 'Risk_Percent', 'Global_BTC_Trend', 'Notes', 'Full_Indicators_JSON'
             ])
         
         # Write trade data
@@ -45,7 +47,9 @@ def log_trade_entry(symbol, side, entry_price, quantity, stop_loss, indicators, 
             indicators.get('ATR', 'N/A'),
             balance,
             '2%',  # Your risk setting
-            indicators.get('Reason', 'Bullish/Bearish confluence')
+            getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
+            indicators.get('Reason', 'Bullish/Bearish confluence'),
+            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
         ])
 
 def log_trade_exit(symbol, side, entry_price, exit_price, quantity, pnl, exit_reason, roi):
@@ -93,7 +97,7 @@ def log_signal_analysis(symbol, indicators, decision, reason):
                 'Timestamp', 'Symbol', 'Decision', 'Reason',
                 'ADX', 'Stoch_K_15m', 'Stoch_D_15m', 'Stoch_K_1h', 'Stoch_D_1h',
                 'RSI', 'Price', 'SMA50', 'HMA_14', 'HMA_Slope', 'ATR',
-                'SMA200_4h', 'Price_vs_SMA200'
+                'SMA200_4h', 'Price_vs_SMA200', 'Global_BTC_Trend', 'Full_Indicators_JSON'
             ])
         
         # Write signal data
@@ -114,7 +118,9 @@ def log_signal_analysis(symbol, indicators, decision, reason):
             indicators.get('HMA_Slope', 'FLAT'),
             indicators.get('ATR', 0),
             indicators.get('SMA200_4h', 0),
-            indicators.get('Price_vs_SMA200', 'BELOW')
+            indicators.get('Price_vs_SMA200', 'BELOW'),
+            getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
+            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
         ])
 
 def log_rejected_signal(symbol, side, indicators, rejection_reason):
@@ -132,7 +138,7 @@ def log_rejected_signal(symbol, side, indicators, rejection_reason):
             writer.writerow([
                 'Timestamp', 'Symbol', 'Attempted_Side', 'Rejection_Reason',
                 'ADX', 'Stoch_K', 'RSI', 'Price_vs_SMA', 'HMA_Slope',
-                'Stoch_Signal', 'RSI_Signal', 'SMA_Signal', 'HMA_Signal'
+                'Stoch_Signal', 'RSI_Signal', 'SMA_Signal', 'HMA_Signal', 'Global_BTC_Trend', 'Full_Indicators_JSON'
             ])
         
         # Write rejected signal
@@ -149,30 +155,8 @@ def log_rejected_signal(symbol, side, indicators, rejection_reason):
             indicators.get('Stoch_OK', False),
             indicators.get('RSI_OK', False),
             indicators.get('SMA_OK', False),
-            indicators.get('HMA_OK', False)
+            indicators.get('HMA_OK', False),
+            getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
+            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
         ])
 
-def get_performance_summary():
-    """
-    Generate performance summary from CSV logs
-    """
-    if not os.path.isfile(TRADE_LOG_CSV):
-        return "No trades logged yet."
-    
-    df = pd.read_csv(TRADE_LOG_CSV)
-    exits = df[df['Side'].str.contains('EXIT', na=False)]
-    
-    if len(exits) == 0:
-        return "No completed trades yet."
-    
-    total_pnl = exits['PnL_USDT'].sum()
-    win_rate = (exits['PnL_USDT'] > 0).sum() / len(exits) * 100
-    avg_roi = exits['ROI_Percent'].mean()
-    
-    return f"""
-    === Performance Summary ===
-    Total PnL: ${total_pnl:.2f}
-    Trades: {len(exits)}
-    Win Rate: {win_rate:.1f}%
-    Avg ROI: {avg_roi:.2f}%
-    """

@@ -21,8 +21,3 @@ def is_optimal_5m_trading_time():
     
     # Moderate zones (acceptable but not optimal)
     return True, "Moderate trading hours"
-
-
-def get_current_utc_hour():
-    """Helper to get current UTC hour for logging"""
-    return datetime.now(timezone.utc).hour

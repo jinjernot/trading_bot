@@ -1,7 +1,9 @@
 from binance.enums import *
 from src.trade import place_order
 from data.indicators import *
+from data.indicators import calculate_volume_profile_full, calculate_roc, calculate_fib_extensions
 from config.settings import *
+from config.settings import strategy_toggles
 
 
 
@@ -9,23 +11,68 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     Checks for a LONG buying opportunity using a confirmation scoring system.
     """
+    # --- Global BTC Filter ---
+    from src.state_manager import bot_state
+    if bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
+        if VERBOSE_LOGGING:
+            print(f"Skipping LONG for {symbol}: Global BTC trend is BEARISH.")
+        return False
+
+    # --- Time Filter (Dashboard Toggle) ---
+    if strategy_toggles.USE_TIME_FILTER:
+        from datetime import datetime, timezone
+        current_hour = datetime.now(timezone.utc).hour
+        if current_hour >= 1 and current_hour < 7:
+            if VERBOSE_LOGGING:
+                print(f"  FIB LONG rejected for {symbol}: Time Filter active (Asian dead hours).")
+            return False
+
+    # --- SMA 200 Trend Filter (Dashboard Toggle) ---
+    if strategy_toggles.USE_SMA_200_FILTER and 'sma_200' in df_4h.columns:
+        last_close = df_15m['close'].iloc[-1]
+        sma_200_4h = df_4h['sma_200'].iloc[-1]
+        if last_close < sma_200_4h:
+            if VERBOSE_LOGGING:
+                print(f"  FIB LONG rejected for {symbol}: Price {last_close:.4f} < 4H SMA 200 {sma_200_4h:.4f}")
+            return False
+
     # --- Core Condition 1: Moderate 4-hour uptrend ---
     adx_4h = df_4h['ADX'].iloc[-1]
     price_sma_4h = df_4h['price_sma_50'].iloc[-1]
     last_close_4h = df_4h['close'].iloc[-1]
-    is_strong_uptrend = adx_4h > 15 and last_close_4h > price_sma_4h
+    is_strong_uptrend = adx_4h > FIB_ADX_THRESHOLD and last_close_4h > price_sma_4h
     if not is_strong_uptrend:
-        return
+        return False
 
-    # --- Core Condition 2: Price at the 0.618 Fibonacci level ---
+    # --- Core Condition 2: Golden Pocket Fibonacci Zone (0.618 to 0.65) ---
+    # The "Golden Pocket" is the institutional entry zone between 0.618 and 0.65 retracement.
+    # It is a tighter, higher-probability zone than a loose ±1% band.
+    # Adopted from ICT (Inner Circle Trader) methodology used by prop desk traders.
     swing_low, swing_high, fib_levels = find_swing_points_and_fib(df_15m, trend='long')
     if not fib_levels:
-        return
+        return False
     last_close_15m = df_15m['close'].iloc[-1]
-    target_fib_level = fib_levels['0.618']
-    price_at_fib_level = last_close_15m <= target_fib_level and last_close_15m > swing_low
-    
-    if price_at_fib_level:
+    fib_618 = fib_levels['0.618']
+    fib_786 = fib_levels['0.786']
+    # Golden Pocket: between 0.618 and midpoint of 0.618–0.786 (~0.65)
+    golden_pocket_top = fib_618
+    golden_pocket_bottom = fib_618 - (fib_618 - fib_786) * 0.5  # midpoint toward 0.786
+    price_in_golden_pocket = golden_pocket_bottom <= last_close_15m <= golden_pocket_top
+
+    # --- Core Condition 3: ROC Momentum Quality Filter ---
+    # Confirm the trend still has ACTIVE upward momentum.
+    # Prevents entering a pullback that is actually a full trend reversal.
+    df_15m = calculate_roc(df_15m, period=10)
+    roc_value = df_15m['roc'].iloc[-1]
+    has_bullish_momentum = roc_value > ROC_MOMENTUM_THRESHOLD  # Confirms active momentum using unified threshold
+
+    # --- Volume Profile (VPVR) Check — Institutional Value Area ---
+    poc_price, vah_price, val_price = calculate_volume_profile_full(df_15m, bins=50)
+    is_near_poc = abs(fib_618 - poc_price) / fib_618 < 0.015
+    is_in_value_area_low = fib_618 <= val_price * 1.01
+    is_vpvr_confluent = is_near_poc or is_in_value_area_low
+
+    if price_in_golden_pocket and has_bullish_momentum and is_vpvr_confluent:
         # --- Calculate all confirmation indicators ---
         df_15m = calculate_hull_moving_average(df_15m, period=14)
         df_15m = calculate_bollinger_bands(df_15m, period=20)
@@ -55,41 +102,121 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
 
         # --- Check if the score meets the minimum requirement ---
         if confirmation_score >= MINIMUM_CONFIRMATIONS:
-            print(f"🚀🚀🚀 LONG SIGNAL FOR {symbol} ({confirmation_score}/4 Confirmations) 🚀🚀🚀")
-            print(f"Found confirmations: {', '.join(confirmations)}")
-            
+            # Calculate Fibonacci extension targets (institutional TP levels)
+            ext_levels = calculate_fib_extensions(swing_low, swing_high, trend='long')
+            tp3_price = ext_levels.get('1.272', 0)
+            tp4_price = ext_levels.get('1.618', 0)
+
+            stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
+            last_rsi = df_15m['rsi'].iloc[-1] if 'rsi' in df_15m.columns else 0
+            hma_slope = df_15m['hma_14'].iloc[-1] - df_15m['hma_14'].iloc[-2]
+            bb_lower = df_15m['BB_Lower'].iloc[-1]
+            bb_distance_pct = abs(last_close_15m - bb_lower) / last_close_15m * 100
+
+            print(f"\n{'='*70}")
+            print(f"📊 FIBONACCI LONG ENTRY SIGNAL: {symbol}")
+            print(f"{'='*70}")
+            print(f"Entry Type: GOLDEN POCKET PULLBACK (Institutional)")
+            print(f"Confirmations: {confirmation_score}/4 - {', '.join(confirmations)}")
+            print(f"\n--- Entry Zone ---")
+            print(f"  Golden Pocket: {golden_pocket_bottom:.4f} – {golden_pocket_top:.4f}")
+            print(f"  ROC (10-bar momentum): {roc_value:+.3f}%")
+            print(f"\n--- 15-Minute Indicators ---")
+            print(f"  Stochastic K: {stoch_k_15m.iloc[-1]:.2f}")
+            print(f"  Stochastic D: {stoch_d_15m.iloc[-1]:.2f}")
+            print(f"  RSI: {last_rsi:.2f}")
+            print(f"  HMA Slope: {hma_slope:+.4f}")
+            print(f"  Distance from Lower BB: {bb_distance_pct:.2f}%")
+            print(f"\n--- 4-Hour Trend ---")
+            print(f"  ADX: {adx_4h:.2f}")
+            print(f"  Price vs SMA50: {last_close_4h:.2f} vs {price_sma_4h:.2f}")
+            print(f"\n--- Fibonacci Levels ---")
+            print(f"  Swing Low: {swing_low:.4f}")
+            print(f"  Swing High: {swing_high:.4f}")
+            print(f"  0.618 (entry): {fib_618:.4f}")
+            print(f"  TP3 (1.272 ext): {tp3_price:.4f}")
+            print(f"  TP4 (1.618 ext): {tp4_price:.4f}")
+            print(f"  Volume POC: {poc_price:.4f} | VAH: {vah_price:.4f} | VAL: {val_price:.4f}")
+            print(f"  VPVR Confluent: {'Near POC' if is_near_poc else 'At/Below VAL'}")
+            print(f"  Current Price: {last_close_15m:.4f}")
+            print(f"{'='*70}\n")
+
             atr_value = df_15m['atr'].iloc[-1]
-            await place_order(
+            order_placed = await place_order(
                 symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance,
-                reason_to_open=f"Fibonacci with {confirmation_score}/4 confirmations",
-                stop_loss_price=swing_low * 0.995,
+                reason_to_open=f"Golden Pocket Fib {confirmation_score}/4 confirms | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
+                stop_loss_price=swing_low * (1 - FIB_STOP_BUFFER),
+                take_profit_price=tp3_price if tp3_price > 0 else None,
                 atr_value=atr_value, df=df_15m,
                 support_4h=swing_low, resistance_4h=swing_high, adx_value=adx_4h
             )
-            return True
+            # Return the actual result — if stop-loss failed, place_order returns False
+            # and we must NOT claim the trade was placed
+            return order_placed if order_placed is not None else False
     return False
 
 async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     Checks for a SHORT selling opportunity using a confirmation scoring system.
     """
+    # --- Global BTC Filter ---
+    from src.state_manager import bot_state
+    if bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
+        if VERBOSE_LOGGING:
+            print(f"Skipping SHORT for {symbol}: Global BTC trend is BULLISH.")
+        return False
+
+    # --- Time Filter (Dashboard Toggle) ---
+    if strategy_toggles.USE_TIME_FILTER:
+        from datetime import datetime, timezone
+        current_hour = datetime.now(timezone.utc).hour
+        if current_hour >= 1 and current_hour < 7:
+            if VERBOSE_LOGGING:
+                print(f"  FIB SHORT rejected for {symbol}: Time Filter active (Asian dead hours).")
+            return False
+
+    # --- SMA 200 Trend Filter (Dashboard Toggle) ---
+    if strategy_toggles.USE_SMA_200_FILTER and 'sma_200' in df_4h.columns:
+        last_close = df_15m['close'].iloc[-1]
+        sma_200_4h = df_4h['sma_200'].iloc[-1]
+        if last_close > sma_200_4h:
+            if VERBOSE_LOGGING:
+                print(f"  FIB SHORT rejected for {symbol}: Price {last_close:.4f} > 4H SMA 200 {sma_200_4h:.4f}")
+            return False
+
     # --- Core Condition 1: Moderate 4-hour downtrend ---
     adx_4h = df_4h['ADX'].iloc[-1]
     price_sma_4h = df_4h['price_sma_50'].iloc[-1]
     last_close_4h = df_4h['close'].iloc[-1]
-    is_strong_downtrend = adx_4h > 15 and last_close_4h < price_sma_4h
+    is_strong_downtrend = adx_4h > FIB_ADX_THRESHOLD and last_close_4h < price_sma_4h
     if not is_strong_downtrend:
-        return
+        return False
 
-    # --- Core Condition 2: Price at the 0.618 Fibonacci level ---
+    # --- Core Condition 2: Golden Pocket Fibonacci Zone (0.618 to 0.65) ---
     swing_low, swing_high, fib_levels = find_swing_points_and_fib(df_15m, trend='short')
     if not fib_levels:
-        return
+        return False
     last_close_15m = df_15m['close'].iloc[-1]
-    target_fib_level = fib_levels['0.618']
-    price_at_fib_level = last_close_15m >= target_fib_level and last_close_15m < swing_high
+    fib_618 = fib_levels['0.618']
+    fib_786 = fib_levels['0.786']
+    # Golden Pocket for shorts: between 0.618 and midpoint of 0.618–0.786
+    golden_pocket_bottom = fib_618
+    golden_pocket_top = fib_618 + (fib_786 - fib_618) * 0.5  # midpoint toward 0.786
+    price_in_golden_pocket = golden_pocket_bottom <= last_close_15m <= golden_pocket_top
 
-    if price_at_fib_level:
+    # --- Core Condition 3: ROC Momentum Quality Filter ---
+    # Confirm the downtrend still has ACTIVE bearish momentum.
+    df_15m = calculate_roc(df_15m, period=10)
+    roc_value = df_15m['roc'].iloc[-1]
+    has_bearish_momentum = roc_value < -ROC_MOMENTUM_THRESHOLD  # Confirms active momentum using unified threshold
+
+    # --- Volume Profile (VPVR) Check — Institutional Value Area ---
+    poc_price, vah_price, val_price = calculate_volume_profile_full(df_15m, bins=50)
+    is_near_poc = abs(fib_618 - poc_price) / fib_618 < 0.015
+    is_in_value_area_high = fib_618 >= vah_price * 0.99
+    is_vpvr_confluent = is_near_poc or is_in_value_area_high
+
+    if price_in_golden_pocket and has_bearish_momentum and is_vpvr_confluent:
         # --- Calculate all confirmation indicators ---
         df_15m = calculate_hull_moving_average(df_15m, period=14)
         df_15m = calculate_bollinger_bands(df_15m, period=20)
@@ -105,7 +232,7 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
             confirmations.append("HMA Sloping Down")
 
         upper_bb = df_15m['BB_Upper'].iloc[-1]
-        if abs(last_close_15m - upper_bb) / last_close_15m < 0.005: # Price within 0.5% of upper BB
+        if abs(last_close_15m - upper_bb) / last_close_15m < 0.005:
             confirmation_score += 1
             confirmations.append("Near Upper Bollinger Band")
 
@@ -119,16 +246,53 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
 
         # --- Check if the score meets the minimum requirement ---
         if confirmation_score >= MINIMUM_CONFIRMATIONS:
-            print(f"🔥🔥🔥 SHORT SIGNAL FOR {symbol} ({confirmation_score}/4 Confirmations) 🔥🔥🔥")
-            print(f"Found confirmations: {', '.join(confirmations)}")
+            # Fibonacci extension targets (institutional TP levels below swing low)
+            ext_levels = calculate_fib_extensions(swing_low, swing_high, trend='short')
+            tp3_price = ext_levels.get('1.272', 0)
+            tp4_price = ext_levels.get('1.618', 0)
+
+            stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
+            last_rsi = df_15m['rsi'].iloc[-1] if 'rsi' in df_15m.columns else 0
+            hma_slope = df_15m['hma_14'].iloc[-1] - df_15m['hma_14'].iloc[-2]
+            upper_bb = df_15m['BB_Upper'].iloc[-1]
+            bb_distance_pct = abs(last_close_15m - upper_bb) / last_close_15m * 100
+
+            print(f"\n{'='*70}")
+            print(f"🔥 FIBONACCI SHORT ENTRY SIGNAL: {symbol}")
+            print(f"{'='*70}")
+            print(f"Entry Type: GOLDEN POCKET RETRACEMENT (Institutional)")
+            print(f"Confirmations: {confirmation_score}/4 - {', '.join(confirmations)}")
+            print(f"\n--- Entry Zone ---")
+            print(f"  Golden Pocket: {golden_pocket_bottom:.4f} – {golden_pocket_top:.4f}")
+            print(f"  ROC (10-bar momentum): {roc_value:+.3f}%")
+            print(f"\n--- 15-Minute Indicators ---")
+            print(f"  Stochastic K: {stoch_k_15m.iloc[-1]:.2f}")
+            print(f"  Stochastic D: {stoch_d_15m.iloc[-1]:.2f}")
+            print(f"  RSI: {last_rsi:.2f}")
+            print(f"  HMA Slope: {hma_slope:+.4f}")
+            print(f"  Distance from Upper BB: {bb_distance_pct:.2f}%")
+            print(f"\n--- 4-Hour Trend ---")
+            print(f"  ADX: {adx_4h:.2f}")
+            print(f"  Price vs SMA50: {last_close_4h:.2f} vs {price_sma_4h:.2f}")
+            print(f"\n--- Fibonacci Levels ---")
+            print(f"  Swing High: {swing_high:.4f}")
+            print(f"  Swing Low: {swing_low:.4f}")
+            print(f"  0.618 (entry): {fib_618:.4f}")
+            print(f"  TP3 (1.272 ext): {tp3_price:.4f}")
+            print(f"  TP4 (1.618 ext): {tp4_price:.4f}")
+            print(f"  Volume POC: {poc_price:.4f} | VAH: {vah_price:.4f} | VAL: {val_price:.4f}")
+            print(f"  VPVR Confluent: {'Near POC' if is_near_poc else 'At/Above VAH'}")
+            print(f"  Current Price: {last_close_15m:.4f}")
+            print(f"{'='*70}\n")
 
             atr_value = df_15m['atr'].iloc[-1]
-            await place_order(
+            order_placed = await place_order(
                 symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance,
-                reason_to_open=f"Fibonacci with {confirmation_score}/4 confirmations",
-                stop_loss_price=swing_high * 1.005,
+                reason_to_open=f"Golden Pocket Fib {confirmation_score}/4 confirms | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
+                stop_loss_price=swing_high * (1 + FIB_STOP_BUFFER),
+                take_profit_price=tp3_price if tp3_price > 0 else None,
                 atr_value=atr_value, df=df_15m,
                 support_4h=swing_low, resistance_4h=swing_high, adx_value=adx_4h
             )
-            return True
+            return order_placed if order_placed is not None else False
     return False

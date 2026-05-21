@@ -4,30 +4,18 @@ import logging
 import pandas as pd
 from threading import Lock
 from flask import Flask, render_template, jsonify, request
-from binance.client import Client
 from data.get_data import get_usdt_balance
-from config.secrets import API_KEY, API_SECRET
 from config.settings import strategy_toggles, VERBOSE_LOGGING
 from src.state_manager import bot_state
 from src.reconciler import reconcile_trades
 from config.symbols import symbols
+from config.client import client
 
 # Silence Werkzeug/Flask HTTP request logs to keep terminal quiet
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
-client = Client(API_KEY, API_SECRET)
-# Sync time with Binance servers to fix timestamp errors
-try:
-    server_time = client.get_server_time()
-    local_time = int(time.time() * 1000)
-    time_offset = server_time['serverTime'] - local_time
-    client.timestamp_offset = time_offset
-    if VERBOSE_LOGGING:
-        print(f"⏰ Dashboard: Time synced with Binance. Offset: {time_offset}ms")
-except Exception as e:
-    print(f"⚠️ Dashboard: Could not sync time with Binance: {e}")
 
 # --- Server-Side Caching Mechanism ---
 CACHE = {

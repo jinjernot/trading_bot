@@ -4,11 +4,11 @@ from data.indicators import *
 from data.indicators import detect_rsi_divergence
 import time
 import asyncio
-from data.get_data import round_quantity, get_funding_rate
+from data.get_data import round_quantity
 from config.settings import *
 from src.state_manager import bot_state
 
-async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resistance, atr_value, entry_price):
+async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resistance, atr_value, entry_price, funding_rate=0.0):
     reason = None
     last_close = df['close'].iloc[-1]
     
@@ -36,8 +36,8 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         # Take 25% of remaining (which is 25% of original) at 3R
         if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
             try:
-                # 25% of the remaining 50% = 0.25 * 0.5 = 0.125 of original position
-                partial_size = abs(position) * PARTIAL_TP2_SIZE
+                # 25% of the remaining position (which is 50% of original after TP1)
+                partial_size = abs(position) * (1 - PARTIAL_TP1_SIZE) * PARTIAL_TP2_SIZE
                 partial_size = round_quantity(symbol, partial_size)
                 if partial_size > 0:
                     print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
@@ -72,9 +72,8 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     
     # 2. Funding Rate Exit
     if not reason and ENABLE_FUNDING_RATE_EXIT:
-        current_funding_rate = get_funding_rate(symbol)
-        if current_funding_rate > MAX_FUNDING_RATE_LONG:
-            reason = f"Funding Rate Exit: Current funding rate {current_funding_rate*100:.3f}% exceeds threshold {MAX_FUNDING_RATE_LONG*100:.3f}%. Overcrowded long position."
+        if funding_rate > MAX_FUNDING_RATE_LONG:
+            reason = f"Funding Rate Exit: Current funding rate {funding_rate*100:.3f}% exceeds threshold {MAX_FUNDING_RATE_LONG*100:.3f}%. Overcrowded long position."
     
     # 3. Maximum Drawdown Limit
     if not reason and ENABLE_MAX_DRAWDOWN_EXIT:
@@ -117,7 +116,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
 
     return False
 
-async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, support, atr_value, entry_price):
+async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, support, atr_value, entry_price, funding_rate=0.0):
     reason = None
     last_close = df['close'].iloc[-1]
 
@@ -145,7 +144,8 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         # Take 25% of remaining at 3R
         if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
             try:
-                partial_size = abs(position) * PARTIAL_TP2_SIZE
+                # 25% of the remaining position (which is 50% of original after TP1)
+                partial_size = abs(position) * (1 - PARTIAL_TP1_SIZE) * PARTIAL_TP2_SIZE
                 partial_size = round_quantity(symbol, partial_size)
                 if partial_size > 0:
                     print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
@@ -180,9 +180,8 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     
     # 2. Funding Rate Exit
     if not reason and ENABLE_FUNDING_RATE_EXIT:
-        current_funding_rate = get_funding_rate(symbol)
-        if current_funding_rate < MAX_FUNDING_RATE_SHORT:
-            reason = f"Funding Rate Exit: Current funding rate {current_funding_rate*100:.3f}% below threshold {MAX_FUNDING_RATE_SHORT*100:.3f}%. Overcrowded short position."
+        if funding_rate < MAX_FUNDING_RATE_SHORT:
+            reason = f"Funding Rate Exit: Current funding rate {funding_rate*100:.3f}% below threshold {MAX_FUNDING_RATE_SHORT*100:.3f}%. Overcrowded short position."
     
     # 3. Maximum Drawdown Limit
     if not reason and ENABLE_MAX_DRAWDOWN_EXIT:
@@ -199,7 +198,7 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
 
     # --- SECONDARY EXIT: Profit-Taking in Extreme Conditions (with Divergence Guard) ---
     stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
-    if stoch_k.iloc[-1] < STOCH_EXTREME_PROFIT_TAKE and stoch_crossed_up and not reason:
+    if stoch_k.iloc[-1] < (100 - STOCH_EXTREME_PROFIT_TAKE) and stoch_crossed_up and not reason:
         # Institutional divergence guard: if RSI shows bearish divergence, the move has more fuel.
         _, bearish_div = detect_rsi_divergence(df, lookback=EXIT_RSI_DIV_LOOKBACK)
         if bearish_div:

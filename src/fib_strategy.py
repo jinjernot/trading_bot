@@ -28,10 +28,10 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
             return False
 
     # --- SMA 200 Trend Filter (Dashboard Toggle) ---
-    if strategy_toggles.USE_SMA_200_FILTER and 'sma_200' in df_4h.columns:
+    if strategy_toggles.USE_SMA_200_FILTER and 'price_sma_200' in df_4h.columns:
         last_close = df_15m['close'].iloc[-1]
-        sma_200_4h = df_4h['sma_200'].iloc[-1]
-        if last_close < sma_200_4h:
+        sma_200_4h = df_4h['price_sma_200'].iloc[-1]
+        if pd.notna(sma_200_4h) and last_close < sma_200_4h:
             if VERBOSE_LOGGING:
                 print(f"  FIB LONG rejected for {symbol}: Price {last_close:.4f} < 4H SMA 200 {sma_200_4h:.4f}")
             return False
@@ -176,10 +176,10 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
             return False
 
     # --- SMA 200 Trend Filter (Dashboard Toggle) ---
-    if strategy_toggles.USE_SMA_200_FILTER and 'sma_200' in df_4h.columns:
+    if strategy_toggles.USE_SMA_200_FILTER and 'price_sma_200' in df_4h.columns:
         last_close = df_15m['close'].iloc[-1]
-        sma_200_4h = df_4h['sma_200'].iloc[-1]
-        if last_close > sma_200_4h:
+        sma_200_4h = df_4h['price_sma_200'].iloc[-1]
+        if pd.notna(sma_200_4h) and last_close > sma_200_4h:
             if VERBOSE_LOGGING:
                 print(f"  FIB SHORT rejected for {symbol}: Price {last_close:.4f} > 4H SMA 200 {sma_200_4h:.4f}")
             return False

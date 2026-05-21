@@ -1,5 +1,8 @@
+import threading
+
 class BotState:
     def __init__(self):
+        self._pnl_lock = threading.Lock()
         self.consecutive_losses = {}
         self.trading_paused = False
         self.global_btc_trend = 'NEUTRAL'
@@ -16,6 +19,11 @@ class BotState:
         self.last_exit_timestamps = {}  # Tracks symbol-specific cooldowns: {symbol: timestamp}
         self.unsigned_agreement_symbols = set()  # Tracks symbols requiring unsigned TradFi agreements
         
+        # BOS Strategy State — Institutional Breakout Controls
+        self.last_bos_entry_time = 0              # Timestamp of last BOS trade (global cooldown)
+        self.bos_pending_retests = {}              # {symbol: {level, direction, timestamp, candles_waited}} — tracks BOS signals awaiting retest
+        self.bos_cycle_count = 0                   # Counter for BOS trades placed in the current scan cycle
+
         # Daily Drawdown Circuit Breaker Tracking
         self.daily_pnl = 0.0
         self.last_pnl_reset_date = None

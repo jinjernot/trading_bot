@@ -131,7 +131,9 @@ def calculate_adx(df, period=14):
     df['+DI'] = 100 * (df['+DM'].ewm(alpha=1/period).mean() / df['TR'].ewm(alpha=1/period).mean())
     df['-DI'] = 100 * (df['-DM'].ewm(alpha=1/period).mean() / df['TR'].ewm(alpha=1/period).mean())
     
-    df['DX'] = 100 * abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI'])
+    di_sum = df['+DI'] + df['-DI']
+    df['DX'] = 100 * abs(df['+DI'] - df['-DI']) / di_sum.replace(0, np.nan)
+    df['DX'] = df['DX'].fillna(0)
     df['ADX'] = df['DX'].ewm(alpha=1/period).mean()
     
     return df
@@ -409,12 +411,27 @@ def calculate_volume_anomaly(df, period=20, multiplier=1.5):
     df['volume_anomaly'] = df['volume'] > (df['vol_sma'] * multiplier)
     return df
 
-def calculate_bos(df, period=50):
+def calculate_bos(df, period=192, retest_window=12, retest_proximity=0.003, retest_wick_threshold=0.30):
     """
-    Break of Structure (BOS) using recent Swing Highs / Swing Lows.
-    Detects if the current close breaks the highest high or lowest low of the last N periods.
-    Using period=50 (approx 4 hours on a 5m chart) ensures true structural levels are respected,
-    filtering out the micro-chop of 1-hour noise.
+    Break of Structure (BOS) with Retest Detection — Institutional Grade.
+    
+    Phase 1: Detects if the current close breaks the highest high or lowest low
+    of the last N periods (structural break).
+    
+    Phase 2 (NEW): After a BOS fires, tracks whether price pulls back to retest
+    the broken level within a configurable window. A valid retest requires:
+      - Price returns to within `retest_proximity` % of the broken level
+      - The retest candle shows a wick rejection (>= retest_wick_threshold)
+    
+    Using period=192 (approx 2 days on 15m chart) ensures true multi-day
+    structural levels are respected, filtering out intra-day noise.
+    
+    Columns created:
+      recent_high / recent_low     — Structure levels (highest high / lowest low)
+      bullish_bos / bearish_bos    — True on the candle that breaks structure
+      bos_level_long / short       — The price level that was broken (for retest tracking)
+      recent_bos_long / short      — True if a BOS fired within the last `retest_window` candles
+      bos_retest_long / short      — True when a valid retest entry signal occurs
     """
     # Get highest high and lowest low of the PREVIOUS N periods
     df['recent_high'] = df['high'].shift(1).rolling(window=period).max()
@@ -425,5 +442,57 @@ def calculate_bos(df, period=50):
     
     # Bearish BOS: Close breaks below the recent low
     df['bearish_bos'] = df['close'] < df['recent_low']
+    
+    # --- Retest Detection ---
+    # Track the broken level for retest comparison
+    df['bos_level_long'] = df['recent_high'].where(df['bullish_bos'])
+    df['bos_level_short'] = df['recent_low'].where(df['bearish_bos'])
+    
+    # Forward-fill the broken level for the retest window so we can check
+    # if subsequent candles retrace back to it
+    df['bos_level_long'] = df['bos_level_long'].ffill(limit=retest_window)
+    df['bos_level_short'] = df['bos_level_short'].ffill(limit=retest_window)
+    
+    # Check if a BOS occurred within the last `retest_window` candles
+    df['recent_bos_long'] = df['bullish_bos'].rolling(window=retest_window, min_periods=1).max().fillna(0).astype(bool)
+    df['recent_bos_short'] = df['bearish_bos'].rolling(window=retest_window, min_periods=1).max().fillna(0).astype(bool)
+    
+    # --- Retest Long: Price pulls back DOWN toward the broken resistance (now support) ---
+    # Conditions: (1) BOS fired recently, (2) current candle NOT the breakout candle itself,
+    # (3) price is near the broken level, (4) candle shows lower-wick rejection (bouncing off level)
+    bos_lvl_long = df['bos_level_long']
+    near_level_long = (
+        bos_lvl_long.notna() &
+        df['recent_bos_long'] &
+        ~df['bullish_bos'] &  # Not on the breakout candle itself
+        (((df['low'] - bos_lvl_long).abs() / bos_lvl_long) < retest_proximity)
+    )
+    
+    # Wick rejection for long retest: lower wick must be >= threshold of total candle length
+    total_len_long = df['high'] - df['low']
+    lower_wick_long = df[['open', 'close']].min(axis=1) - df['low']
+    wick_ok_long = (total_len_long > 0) & ((lower_wick_long / total_len_long) >= retest_wick_threshold)
+    # Price must also have closed ABOVE the broken level (acceptance)
+    close_above_level_long = df['close'] > bos_lvl_long
+    
+    df['bos_retest_long'] = (near_level_long & wick_ok_long & close_above_level_long).fillna(False)
+    
+    # --- Retest Short: Price pulls back UP toward the broken support (now resistance) ---
+    bos_lvl_short = df['bos_level_short']
+    near_level_short = (
+        bos_lvl_short.notna() &
+        df['recent_bos_short'] &
+        ~df['bearish_bos'] &  # Not on the breakdown candle itself
+        (((df['high'] - bos_lvl_short).abs() / bos_lvl_short) < retest_proximity)
+    )
+    
+    # Wick rejection for short retest: upper wick must be >= threshold of total candle length
+    total_len_short = df['high'] - df['low']
+    upper_wick_short = df['high'] - df[['open', 'close']].max(axis=1)
+    wick_ok_short = (total_len_short > 0) & ((upper_wick_short / total_len_short) >= retest_wick_threshold)
+    # Price must also have closed BELOW the broken level (acceptance)
+    close_below_level_short = df['close'] < bos_lvl_short
+    
+    df['bos_retest_short'] = (near_level_short & wick_ok_short & close_below_level_short).fillna(False)
     
     return df

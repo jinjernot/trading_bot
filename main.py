@@ -7,8 +7,6 @@ import io
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 import pandas as pd
-from binance.client import Client
-from config.secrets import API_KEY, API_SECRET
 from config.symbols import symbols
 from data.get_data import fetch_multi_timeframe_data, get_all_positions_and_balance, get_usdt_balance, get_position, get_all_funding_rates, get_global_btc_trend
 from data.indicators import *
@@ -25,16 +23,7 @@ from src.open_position import open_position_long, open_position_short
 from src.bos_strategy import check_bos_breakout_long, check_bos_breakout_short
 
 
-client = Client(API_KEY, API_SECRET)
-# Sync time with Binance servers to fix timestamp errors
-try:
-    server_time = client.get_server_time()
-    local_time = int(time.time() * 1000)
-    time_offset = server_time['serverTime'] - local_time
-    client.timestamp_offset = time_offset
-    print(f"⏰ Time synced with Binance. Offset: {time_offset}ms")
-except Exception as e:
-    print(f"⚠️ Could not sync time with Binance: {e}")
+from config.client import client
 
 trade_lock = asyncio.Lock()
 
@@ -87,7 +76,7 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
                 print(f"⚠️ Skipping {symbol}: TradFi-Perps Agreement required.")
             return
 
-        df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _, stoch_k_1h, stoch_d_1h = await asyncio.to_thread(
+        df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _, stoch_k_1h, stoch_d_1h, df_1h = await asyncio.to_thread(
             fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
         )
 
@@ -100,12 +89,16 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
         df_15m = calculate_vwap(df_15m, period=288)
         from config.settings import VOLUME_ANOMALY_PERIOD, VOLUME_ANOMALY_MULTIPLIER
         df_15m = calculate_volume_anomaly(df_15m, period=VOLUME_ANOMALY_PERIOD, multiplier=VOLUME_ANOMALY_MULTIPLIER)
-        df_15m = calculate_bos(df_15m, period=50)
+        from config.settings import BOS_LOOKBACK_PERIOD, BOS_RETEST_WINDOW, BOS_RETEST_PROXIMITY_PCT, BOS_RETEST_WICK_REJECTION
+        df_15m = calculate_bos(df_15m, period=BOS_LOOKBACK_PERIOD, retest_window=BOS_RETEST_WINDOW, retest_proximity=BOS_RETEST_PROXIMITY_PCT, retest_wick_threshold=BOS_RETEST_WICK_REJECTION)
         stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
         
         df_4h = calculate_adx(df_4h)
         df_4h = add_price_sma(df_4h, 50)
         df_4h = add_price_sma(df_4h, 200)  # Required by SMA200 trend filter in open_position.py
+        
+        # --- 1H EMA 21 for BOS Trend Filter ---
+        df_1h['ema_21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
         
         position, roi, _, _, entry_price = get_position(symbol, all_positions)
         usdt_balance = get_usdt_balance(balance_data)
@@ -113,10 +106,13 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
         atr_value_15m = df_15m['atr'].iloc[-1]
 
         # --- Position Management Logic (for open trades) ---
+        # NOTE (Fix #1): position/roi data is from the cycle-start snapshot. Each symbol is
+        # processed independently so cross-symbol staleness is not an issue. The only risk is
+        # an exchange-level SL/TP firing mid-cycle for THIS symbol, which is a rare edge case.
         if position > 0: # Active Long Position
-            await close_position_long(symbol, position, roi, df_15m, stoch_k_15m, stoch_d_15m, None, atr_value_15m, entry_price)
+            await close_position_long(symbol, position, roi, df_15m, stoch_k_15m, stoch_d_15m, None, atr_value_15m, entry_price, funding_rate=funding_rate)
         elif position < 0: # Active Short Position
-            await close_position_short(symbol, position, roi, df_15m, stoch_k_15m, stoch_d_15m, None, atr_value_15m, entry_price)
+            await close_position_short(symbol, position, roi, df_15m, stoch_k_15m, stoch_d_15m, None, atr_value_15m, entry_price, funding_rate=funding_rate)
         
         # --- Entry Logic (for new trades) ---
         if position == 0:
@@ -169,10 +165,13 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
 
                 # 2. If no Fib, check for BOS Momentum Breakout (rocket rider)
                 bos_trade_taken = False
-                if ENABLE_BOS_STRATEGY and not fib_trade_taken:
-                    bos_trade_taken = await check_bos_breakout_long(symbol, df_15m, df_4h, current_usdt_balance)
+                from config.settings import BOS_MAX_TRADES_PER_CYCLE
+                if ENABLE_BOS_STRATEGY and not fib_trade_taken and bot_state.bos_cycle_count < BOS_MAX_TRADES_PER_CYCLE:
+                    bos_trade_taken = await check_bos_breakout_long(symbol, df_15m, df_4h, df_1h, stoch_k_15m, current_usdt_balance)
                     if not bos_trade_taken:
-                        bos_trade_taken = await check_bos_breakout_short(symbol, df_15m, df_4h, current_usdt_balance)
+                        bos_trade_taken = await check_bos_breakout_short(symbol, df_15m, df_4h, df_1h, stoch_k_15m, current_usdt_balance)
+                    if bos_trade_taken:
+                        bot_state.bos_cycle_count += 1
 
                 # 3. If no Fib or BOS, fall back to Stochastic Pullback (B+ everyday grinder)
                 if ENABLE_STOCH_STRATEGY and not fib_trade_taken and not bos_trade_taken:
@@ -181,7 +180,8 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
                         await open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, current_usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
 
     except Exception as e:
-        error_msg = f"Error processing {symbol}: {e}"
+        import traceback
+        error_msg = f"Error processing {symbol}: {e}\n{traceback.format_exc()}"
         print(error_msg.encode(sys.stdout.encoding or 'utf-8', errors='replace').decode(sys.stdout.encoding or 'utf-8'))
 
 async def main_trading_loop():
@@ -216,6 +216,9 @@ async def main_trading_loop():
         print(f"{'='*60}")
         
         try:
+            # Reset BOS cycle throttle at the start of each scan cycle
+            bot_state.bos_cycle_count = 0
+            
             all_positions, balance_data = await asyncio.to_thread(get_all_positions_and_balance)
             active_positions = [p for p in all_positions if float(p.get('positionAmt', 0)) != 0]
             current_active_symbols = {p['symbol'] for p in active_positions}
@@ -229,6 +232,9 @@ async def main_trading_loop():
                     
             previously_active_symbols = current_active_symbols
 
+            # Fetch funding rates once per cycle — used by both close and entry logic
+            funding_rates_map = await asyncio.to_thread(get_all_funding_rates)
+
             if len(active_positions) > 0:
                 print(f"📊 Managing {len(active_positions)} active trade(s)")
                 await manage_active_trades(active_positions)
@@ -241,7 +247,6 @@ async def main_trading_loop():
                 symbols_to_check = [s for s in symbols if s not in active_symbols]
                 
                 print(f"🔍 Scanning {len(symbols_to_check)} symbols for entry signals...")
-                funding_rates_map = await asyncio.to_thread(get_all_funding_rates)
                 await asyncio.to_thread(get_global_btc_trend)
                 prev_trend = getattr(bot_state, '_prev_btc_trend', None)
                 if prev_trend != bot_state.global_btc_trend:

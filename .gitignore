@@ -22,6 +22,7 @@ logs/
 *.csv
 data/historical_miner_export.csv
 data/rejected_signals.csv
+scripts/
 
 # ── JSON config exports (generated artifacts) ────────────────────
 *.json

@@ -13,15 +13,7 @@ import sys
 
 async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
     
-    # --- Symbol Cooldown Lockout Filter ---
-    last_exit = bot_state.last_exit_timestamps.get(symbol, 0)
-    cooldown_elapsed = time.time() - last_exit
-    if cooldown_elapsed < COOL_DOWN_PERIOD_SECONDS:
-        remaining = int(COOL_DOWN_PERIOD_SECONDS - cooldown_elapsed)
-        if VERBOSE_LOGGING:
-            print(f"❄️  Skipping LONG for {symbol}: Symbol is in a cooldown lockout period. {remaining}s remaining.")
-        log_rejected_signal(symbol, 'LONG', {}, f"Symbol Cooldown Lockout: {remaining}s remaining")
-        return False
+    # NOTE: Cooldown lockout is enforced in process_symbol() before this function is called.
 
     # --- Global BTC Filter ---
     if bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
@@ -194,15 +186,8 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
 
 async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, usdt_balance, support, resistance, atr_value, funding_rate, support_4h, resistance_4h):
 
-    # --- Symbol Cooldown Lockout Filter ---
-    last_exit = bot_state.last_exit_timestamps.get(symbol, 0)
-    cooldown_elapsed = time.time() - last_exit
-    if cooldown_elapsed < COOL_DOWN_PERIOD_SECONDS:
-        remaining = int(COOL_DOWN_PERIOD_SECONDS - cooldown_elapsed)
-        if VERBOSE_LOGGING:
-            print(f"❄️  Skipping SHORT for {symbol}: Symbol is in a cooldown lockout period. {remaining}s remaining.")
-        log_rejected_signal(symbol, 'SHORT', {}, f"Symbol Cooldown Lockout: {remaining}s remaining")
-        return False
+
+    # NOTE: Cooldown lockout is enforced in process_symbol() before this function is called.
 
     # --- Global BTC Filter ---
     if bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':

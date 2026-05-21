@@ -251,7 +251,7 @@ def reconcile_trades(symbols: list, verbose: bool = True) -> dict:
 
                 # ROI calculation: same formula as close_position() in trade.py
                 initial_margin = (entry_price * total_qty) / LEVERAGE if LEVERAGE > 0 else 1
-                roi = (total_pnl / initial_margin * 100) if initial_margin > 0 else 0
+                roi = (net_pnl / initial_margin * 100) if initial_margin > 0 else 0
 
                 _write_backfill_row(
                     symbol=symbol,

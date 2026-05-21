@@ -22,17 +22,7 @@ from data.get_data import get_market_price, round_price, round_quantity, get_usd
 from data.indicators import calculate_atr
 from src.detailed_logger import log_trade_exit
 
-from binance.client import Client
-
-client = Client(API_KEY, API_SECRET)
-# Sync time with Binance servers to fix timestamp errors
-try:
-    server_time = client.get_server_time()
-    local_time = int(time.time() * 1000)
-    time_offset = server_time['serverTime'] - local_time
-    client.timestamp_offset = time_offset
-except Exception:
-    pass  # Silent fail on import
+from config.client import client
 
 
 def place_algo_stop_loss(symbol, side, stop_price, quantity, working_type='CONTRACT_PRICE'):
@@ -166,6 +156,19 @@ def cancel_algo_stop_loss_orders(symbol):
     Finds and cancels only STOP_MARKET Algo Orders for a specific symbol.
     Leaves TAKE_PROFIT_MARKET Algo Orders alone.
     """
+    _cancel_algo_orders_by_type(symbol, target_types=('STOP_MARKET', 'ALGO'), label='Stop Loss')
+
+def cancel_algo_take_profit_orders(symbol):
+    """
+    Finds and cancels only TAKE_PROFIT_MARKET Algo Orders for a specific symbol.
+    Prevents orphan TP orders from surviving after a position is closed.
+    """
+    _cancel_algo_orders_by_type(symbol, target_types=('TAKE_PROFIT_MARKET',), label='Take Profit')
+
+def _cancel_algo_orders_by_type(symbol, target_types, label=''):
+    """
+    Internal helper: fetches open Algo Orders and cancels those matching target_types.
+    """
     
     base_url = 'https://fapi.binance.com'
     endpoint = '/fapi/v1/openAlgoOrders'
@@ -191,10 +194,10 @@ def cancel_algo_stop_loss_orders(symbol):
                 # Safe fallback if format is unexpected
                 return
                 
-            # 2. Cancel only the STOP_MARKET ones
+            # 2. Cancel only the matching types
             cancel_endpoint = '/fapi/v1/algoOrder'
             for order in algo_orders:
-                if order.get('type') in ('STOP_MARKET', 'ALGO'):
+                if order.get('type') in target_types:
                     cancel_params = {
                         'symbol': symbol,
                         'algoId': order.get('algoId'),
@@ -206,7 +209,7 @@ def cancel_algo_stop_loss_orders(symbol):
                     
                     requests.delete(base_url + cancel_endpoint, params=cancel_params, headers=headers, timeout=10)
     except Exception as e:
-        print(f"Error checking/canceling Algo Stop Loss for {symbol}: {e}")
+        print(f"Error checking/canceling Algo {label} for {symbol}: {e}")
 
 async def manage_active_trades(active_positions):
     """
@@ -345,40 +348,19 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
                     
                 if isinstance(algo_orders, list):
                     for order in algo_orders:
-                        if order.get('type') in ('STOP_MARKET', 'ALGO'):
-                            current_stop_price = float(order.get('stopPrice', order.get('triggerprice', 0)))
+                        order_type = order.get('type', '')
+                        if order_type in ('STOP_MARKET', 'ALGO') or 'STOP' in order_type:
+                            # Try all known field names for the trigger price
+                            current_stop_price = float(
+                                order.get('stopPrice',
+                                order.get('triggerprice',
+                                order.get('triggerPrice',
+                                order.get('price', 0))))
+                            )
                             break
         except Exception as e:
-            print(f"Error fetching Algo Stop Loss for trailing stop calculation: {e}")
-
-    print(f"--- Trailing Stop Debug for {symbol} ---")
-    print(f"Position Side: {position_side}, Entry Price: {entry_price}")
-    print(f"Current Market Price: {current_price}")
-    print(f"Current Stop-Loss Price on Binance: {current_stop_price}")
-
-
-    if current_stop_price is None:
-        # Algo orders (/fapi/v1/openAlgoOrders) don't appear in futures_get_open_orders.
-        # Try fetching from the Algo Order list as a fallback.
-        try:
-            ts = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-            qs = urlencode({'symbol': symbol, 'timestamp': ts})
-            sig = hmac.new(API_SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
-            resp = requests.get(
-                'https://fapi.binance.com/fapi/v1/openAlgoOrders',
-                params={'symbol': symbol, 'timestamp': ts, 'signature': sig},
-                headers={'X-MBX-APIKEY': API_KEY},
-                timeout=10
-            )
-            if resp.status_code == 200:
-                algo_orders = resp.json()
-                for ao in algo_orders:
-                    if 'STOP' in ao.get('algoType', '') or 'STOP' in ao.get('type', '') or 'STOP' in ao.get('orderType', ''):
-                        current_stop_price = float(ao.get('triggerPrice', ao.get('price', 0)))
-                        break
-        except Exception as algo_err:
             if VERBOSE_LOGGING:
-                print(f"Could not fetch algo orders for trailing stop on {symbol}: {algo_err}")
+                print(f"Could not fetch algo orders for trailing stop on {symbol}: {e}")
 
     if current_stop_price is None or current_stop_price == 0:
         if VERBOSE_LOGGING:
@@ -471,17 +453,21 @@ async def update_stop_loss(symbol, new_stop_price, side):
         print(f"Error updating trailing stop for {symbol}: {e}")
 
 
+import threading
+_log_trade_lock = threading.Lock()
+
 def log_trade(data):
-    if not os.path.exists(LOG_FILE):
+    with _log_trade_lock:
+        if not os.path.exists(LOG_FILE):
+            with open(LOG_FILE, 'w') as f:
+                json.dump([], f) 
+
+        with open(LOG_FILE, 'r') as f:
+            logs = json.load(f)
+        logs.append(data) 
+
         with open(LOG_FILE, 'w') as f:
-            json.dump([], f) 
-
-    with open(LOG_FILE, 'r') as f:
-        logs = json.load(f)
-    logs.append(data) 
-
-    with open(LOG_FILE, 'w') as f:
-        json.dump(logs, f, indent=4)
+            json.dump(logs, f, indent=4)
 
 async def cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True):
     try:
@@ -506,6 +492,8 @@ async def cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True):
         # ALGO ORDERS FALLBACK: Since the above API does not see ALGO orders, we must manually query and cancel them
         if cancel_sl:
             await asyncio.to_thread(cancel_algo_stop_loss_orders, symbol)
+        if cancel_tp:
+            await asyncio.to_thread(cancel_algo_take_profit_orders, symbol)
             
     except Exception as e:
         print(f"Error canceling open orders for {symbol}: {e}")
@@ -882,14 +870,17 @@ def close_position(symbol, side, quantity, reason_to_close):
             position_side = "SHORT"
             
         # Binance Futures Market Taker Fee — configured in settings.py
-        # We pay this twice (once to open, once to close) because we use Market Orders
+        # We pay this twice (once to open, once to close) because we use Market Orders.
+        # NOTE (Fix #3): Even on partial closes, we calculate the entry fee based on the 
+        # *closing* quantity. This correctly apportions the entry fee across the partial exits.
         total_fees = (entry_price * float(quantity) * BINANCE_FEE_RATE) + (exit_price * float(quantity) * BINANCE_FEE_RATE)
         
         pnl = gross_pnl - total_fees
         
-        # Update Daily PnL Tracker
+        # Update Daily PnL Tracker (thread-safe: close_position runs via asyncio.to_thread)
         from src.state_manager import bot_state
-        bot_state.daily_pnl += pnl
+        with bot_state._pnl_lock:
+            bot_state.daily_pnl += pnl
         
         # Calculate ROI using the configured LEVERAGE (imported from settings)
         # ROI = (PnL / Initial Margin) * 100

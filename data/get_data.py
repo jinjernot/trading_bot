@@ -10,15 +10,7 @@ from functools import lru_cache
 from data.indicators import calculate_stoch, add_price_sma, calculate_macd, PERIOD, K, D
 from src.state_manager import bot_state
 
-client = Client(API_KEY, API_SECRET)
-# Sync time with Binance servers to fix timestamp errors
-try:
-    server_time = client.get_server_time()
-    local_time = int(time.time() * 1000)
-    time_offset = server_time['serverTime'] - local_time
-    client.timestamp_offset = time_offset
-except Exception:
-    pass  # Silent fail on import
+from config.client import client
 
 def get_all_positions_and_balance():
     """
@@ -67,18 +59,21 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
     else:
         df_long, support_long, resistance_long, stoch_k_long, stoch_d_long = bot_state.cached_data_long[symbol]
 
-    return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long, stoch_k_1h, stoch_d_1h
+    return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long, stoch_k_1h, stoch_d_1h, df_1h
 
 _exchange_info_cache = None
+_exchange_info_cache_time = 0
+_EXCHANGE_INFO_TTL = 21600  # Refresh exchange info every 6 hours
 
 def get_symbol_info(symbol):
     """
-    Returns exchange info for a symbol. Cached globally to avoid repeated
-    exchange_info() API calls (50+ calls/cycle without this).
+    Returns exchange info for a symbol. Cached globally with 6-hour TTL
+    to avoid repeated exchange_info() API calls.
     """
-    global _exchange_info_cache
-    if _exchange_info_cache is None:
+    global _exchange_info_cache, _exchange_info_cache_time
+    if _exchange_info_cache is None or (time.time() - _exchange_info_cache_time) > _EXCHANGE_INFO_TTL:
         _exchange_info_cache = client.futures_exchange_info()
+        _exchange_info_cache_time = time.time()
     for s in _exchange_info_cache['symbols']:
         if s['symbol'] == symbol:
             return s

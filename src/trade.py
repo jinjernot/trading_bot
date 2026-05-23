@@ -322,7 +322,7 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
             
     # If not found in standard orders, check Algo Orders
     if current_stop_price is None:
-        from config.settings import API_KEY, API_SECRET
+        from config.secrets import API_KEY, API_SECRET
         
         base_url = 'https://fapi.binance.com'
         endpoint = '/fapi/v1/openAlgoOrders'

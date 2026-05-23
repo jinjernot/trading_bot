@@ -21,6 +21,7 @@ from config.bot_info import get_startup_message
 from src.fib_strategy import check_fib_pullback_long_entry, check_fib_retrace_short_entry
 from src.open_position import open_position_long, open_position_short
 from src.bos_strategy import check_bos_breakout_long, check_bos_breakout_short
+from src.reversal_strategy import check_reversal_long_entry, check_reversal_short_entry
 
 
 from config.client import client
@@ -76,7 +77,7 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
                 print(f"⚠️ Skipping {symbol}: TradFi-Perps Agreement required.")
             return
 
-        df_15m, _, _, df_4h, support_4h, resistance_4h, _, _, _, stoch_k_1h, stoch_d_1h, df_1h = await asyncio.to_thread(
+        df_15m, _, _, _, _, _, _, _, df_4h, support_4h, resistance_4h, stoch_k_1h, stoch_d_1h, df_1h = await asyncio.to_thread(
             fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
         )
 
@@ -173,8 +174,15 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
                     if bos_trade_taken:
                         bot_state.bos_cycle_count += 1
 
-                # 3. If no Fib or BOS, fall back to Stochastic Pullback (B+ everyday grinder)
-                if ENABLE_STOCH_STRATEGY and not fib_trade_taken and not bos_trade_taken:
+                # 3. If no Fib or BOS, check for Mean Reversion / Support Catch
+                reversal_trade_taken = False
+                if ENABLE_REVERSAL_STRATEGY and not fib_trade_taken and not bos_trade_taken:
+                    reversal_trade_taken = await check_reversal_long_entry(symbol, df_15m, df_4h, stoch_k_1h, current_usdt_balance, support_4h)
+                    if not reversal_trade_taken:
+                        reversal_trade_taken = await check_reversal_short_entry(symbol, df_15m, df_4h, stoch_k_1h, current_usdt_balance, resistance_4h)
+
+                # 4. If no Fib, BOS, or Reversal, fall back to Stochastic Pullback (B+ everyday grinder)
+                if ENABLE_STOCH_STRATEGY and not fib_trade_taken and not bos_trade_taken and not reversal_trade_taken:
                     general_trade_taken = await open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, current_usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
                     if not general_trade_taken:
                         await open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, current_usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)

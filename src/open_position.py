@@ -80,9 +80,10 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
 
     # === PHASE 2 IMPROVEMENT: Break of Structure (BOS) ===
     if getattr(strategy_toggles, 'REQUIRE_BOS', False):
-        if not df_15m['bullish_bos'].iloc[-1]:
+        # We must verify BOS on a CLOSED candle to avoid fake wicks
+        if not df_15m['bullish_bos'].iloc[-2]:
             if VERBOSE_LOGGING:
-                print(f"Skipping LONG for {symbol}: No Bullish Break of Structure (BOS).")
+                print(f"Skipping LONG for {symbol}: No Bullish Break of Structure (BOS) on last closed candle.")
             log_rejected_signal(symbol, 'LONG', {}, "No Bullish BOS")
             return False
 
@@ -254,9 +255,10 @@ async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, s
 
     # === PHASE 2 IMPROVEMENT: Break of Structure (BOS) ===
     if getattr(strategy_toggles, 'REQUIRE_BOS', False):
-        if not df_15m['bearish_bos'].iloc[-1]:
+        # We must verify BOS on a CLOSED candle to avoid fake wicks
+        if not df_15m['bearish_bos'].iloc[-2]:
             if VERBOSE_LOGGING:
-                print(f"Skipping SHORT for {symbol}: No Bearish Break of Structure (BOS).")
+                print(f"Skipping SHORT for {symbol}: No Bearish Break of Structure (BOS) on last closed candle.")
             log_rejected_signal(symbol, 'SHORT', {}, "No Bearish BOS")
             return False
 

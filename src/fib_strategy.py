@@ -79,6 +79,11 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
         df_15m = add_candlestick_patterns(df_15m)
         df_15m = add_volume_sma(df_15m, period=20)
 
+        # Strict Momentum Breakout Requirement (Trigger Pull)
+        # Live price must break above the high of the previous closed candle
+        if last_close_15m <= df_15m['high'].iloc[-2]:
+            return False
+
         # --- Tally the confirmation signals ---
         confirmation_score = 0
         confirmations = []
@@ -87,18 +92,20 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
             confirmation_score += 1
             confirmations.append("HMA Sloping Up")
         
-        lower_bb = df_15m['BB_Lower'].iloc[-1]
-        if abs(last_close_15m - lower_bb) / last_close_15m < 0.005: # Price within 0.5% of lower BB
+        # Check BB distance on the CLOSED candle (-2)
+        closed_low = df_15m['low'].iloc[-2]
+        lower_bb = df_15m['BB_Lower'].iloc[-2]
+        if abs(closed_low - lower_bb) / closed_low < 0.005: # Price within 0.5% of lower BB
             confirmation_score += 1
-            confirmations.append("Near Lower Bollinger Band")
+            confirmations.append("Near Lower Bollinger Band (Closed)")
 
-        if df_15m['bullish_pattern'].iloc[-1] == 1:
+        if df_15m['bullish_pattern'].iloc[-2] == 1:
             confirmation_score += 1
-            confirmations.append("Bullish Candlestick Pattern")
+            confirmations.append("Bullish Candlestick Pattern (Closed)")
 
-        if df_15m['volume'].iloc[-1] > (df_15m['volume_sma_20'].iloc[-1] * 1.5):
+        if df_15m['volume'].iloc[-2] > (df_15m['volume_sma_20'].iloc[-2] * 1.5):
             confirmation_score += 1
-            confirmations.append("Volume Spike")
+            confirmations.append("Volume Spike (Closed)")
 
         # --- Check if the score meets the minimum requirement ---
         if confirmation_score >= MINIMUM_CONFIRMATIONS:
@@ -223,6 +230,11 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
         df_15m = add_candlestick_patterns(df_15m)
         df_15m = add_volume_sma(df_15m, period=20)
 
+        # Strict Momentum Breakout Requirement (Trigger Pull)
+        # Live price must break below the low of the previous closed candle
+        if last_close_15m >= df_15m['low'].iloc[-2]:
+            return False
+
         # --- Tally the confirmation signals ---
         confirmation_score = 0
         confirmations = []
@@ -231,18 +243,20 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
             confirmation_score += 1
             confirmations.append("HMA Sloping Down")
 
-        upper_bb = df_15m['BB_Upper'].iloc[-1]
-        if abs(last_close_15m - upper_bb) / last_close_15m < 0.005:
+        # Check BB distance on the CLOSED candle (-2)
+        closed_high = df_15m['high'].iloc[-2]
+        upper_bb = df_15m['BB_Upper'].iloc[-2]
+        if abs(closed_high - upper_bb) / closed_high < 0.005:
             confirmation_score += 1
-            confirmations.append("Near Upper Bollinger Band")
+            confirmations.append("Near Upper Bollinger Band (Closed)")
 
-        if df_15m['bearish_pattern'].iloc[-1] == 1:
+        if df_15m['bearish_pattern'].iloc[-2] == 1:
             confirmation_score += 1
-            confirmations.append("Bearish Candlestick Pattern")
+            confirmations.append("Bearish Candlestick Pattern (Closed)")
 
-        if df_15m['volume'].iloc[-1] > (df_15m['volume_sma_20'].iloc[-1] * 1.5):
+        if df_15m['volume'].iloc[-2] > (df_15m['volume_sma_20'].iloc[-2] * 1.5):
             confirmation_score += 1
-            confirmations.append("Volume Spike")
+            confirmations.append("Volume Spike (Closed)")
 
         # --- Check if the score meets the minimum requirement ---
         if confirmation_score >= MINIMUM_CONFIRMATIONS:

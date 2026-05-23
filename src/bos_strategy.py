@@ -140,7 +140,14 @@ async def check_bos_breakout_long(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_ba
     if 'bos_retest_long' not in df_15m.columns:
         return False
 
-    if not df_15m['bos_retest_long'].iloc[-1]:
+    # Ensure the retest rejection wick was printed on a fully CLOSED candle
+    if not df_15m['bos_retest_long'].iloc[-2]:
+        return False
+
+    # NEW: Strict Momentum Breakout Requirement (Trigger Pull)
+    # The current live price must break above the high of the closed retest candle
+    last_close = df_15m['close'].iloc[-1]
+    if last_close <= df_15m['high'].iloc[-2]:
         return False
 
     # --- Core Condition 3: Volume Anomaly on the ORIGINAL breakout candle ---
@@ -193,8 +200,8 @@ async def check_bos_breakout_long(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_ba
 
     # --- All conditions met: Calculate trade parameters ---
     # Use the broken level from the retest detection
-    broken_level = df_15m['bos_level_long'].iloc[-1]
-    retest_candle_low = df_15m['low'].iloc[-1]   # Bottom of the retest candle
+    broken_level = df_15m['bos_level_long'].iloc[-2]
+    retest_candle_low = df_15m['low'].iloc[-2]   # Bottom of the CLOSED retest candle
 
     # Stop Loss: Below the retest candle's low (with buffer)
     stop_loss_price = retest_candle_low * (1 - BOS_STOP_BUFFER)
@@ -296,7 +303,14 @@ async def check_bos_breakout_short(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_b
     if 'bos_retest_short' not in df_15m.columns:
         return False
 
-    if not df_15m['bos_retest_short'].iloc[-1]:
+    # Ensure the retest rejection wick was printed on a fully CLOSED candle
+    if not df_15m['bos_retest_short'].iloc[-2]:
+        return False
+
+    # NEW: Strict Momentum Breakout Requirement (Trigger Pull)
+    # The current live price must break below the low of the closed retest candle
+    last_close = df_15m['close'].iloc[-1]
+    if last_close >= df_15m['low'].iloc[-2]:
         return False
 
     # --- Core Condition 3: Volume Anomaly on the ORIGINAL breakdown candle ---
@@ -344,8 +358,8 @@ async def check_bos_breakout_short(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_b
         return False
 
     # --- All conditions met: Calculate trade parameters ---
-    broken_level = df_15m['bos_level_short'].iloc[-1]
-    retest_candle_high = df_15m['high'].iloc[-1]  # Top of the retest candle
+    broken_level = df_15m['bos_level_short'].iloc[-2]
+    retest_candle_high = df_15m['high'].iloc[-2]  # Top of the CLOSED retest candle
 
     # Stop Loss: Above the retest candle's high (with buffer)
     stop_loss_price = retest_candle_high * (1 + BOS_STOP_BUFFER)

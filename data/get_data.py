@@ -30,17 +30,17 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
     CACHE_DURATION_MID = 1800
     CACHE_DURATION_LONG = 14400
 
-    # Use 300 bars for the short TF: 300 × 5min = 25h, enough for meaningful Fib swing detection
-    df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='300')
+    # Use 350 bars for the short TF: enough for VWAP and BOS calculations
+    df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='350')
     df_short = calculate_macd(df_short)  # Add MACD for short timeframe
 
     # Fetch 1h data for multi-timeframe stochastic confirmation
-    df_1h, _, _ = fetch_klines(symbol, '1h', lookback='100')
+    df_1h, _, _ = fetch_klines(symbol, '1h', lookback='150')
     stoch_k_1h, stoch_d_1h = calculate_stoch(df_1h['high'], df_1h['low'], df_1h['close'], PERIOD, K, D)
 
     if (symbol not in bot_state.last_fetch_time_mid or \
         (current_time - bot_state.last_fetch_time_mid[symbol]) > CACHE_DURATION_MID):
-        df_mid, support_mid, resistance_mid = fetch_klines(symbol, mid_interval, lookback='200')  # Increased for SMA 200
+        df_mid, support_mid, resistance_mid = fetch_klines(symbol, mid_interval, lookback='250')  # Increased for SMA 200 safety margin
         stoch_k_mid, stoch_d_mid = calculate_stoch(df_mid['high'], df_mid['low'], df_mid['close'], PERIOD, K, D)
         df_mid = add_price_sma(df_mid, period=50)
         df_mid = add_price_sma(df_mid, period=200)  # Add SMA 200 for trend filter
@@ -52,14 +52,14 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
 
     if (symbol not in bot_state.last_fetch_time_long or \
         (current_time - bot_state.last_fetch_time_long[symbol]) > CACHE_DURATION_LONG):
-        df_long, support_long, resistance_long = fetch_klines(symbol, long_interval, lookback='100')
+        df_long, support_long, resistance_long = fetch_klines(symbol, long_interval, lookback='250')
         stoch_k_long, stoch_d_long = calculate_stoch(df_long['high'], df_long['low'], df_long['close'], PERIOD, K, D)
         bot_state.cached_data_long[symbol] = (df_long, support_long, resistance_long, stoch_k_long, stoch_d_long)
         bot_state.last_fetch_time_long[symbol] = current_time
     else:
         df_long, support_long, resistance_long, stoch_k_long, stoch_d_long = bot_state.cached_data_long[symbol]
 
-    return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long, stoch_k_1h, stoch_d_1h, df_1h
+    return df_short, support_short, resistance_short, df_mid, support_mid, resistance_mid, stoch_k_mid, stoch_d_mid, df_long, support_long, resistance_long, stoch_k_1h, stoch_d_1h, df_1h
 
 _exchange_info_cache = None
 _exchange_info_cache_time = 0

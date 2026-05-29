@@ -42,6 +42,7 @@ HIERARCHY:
     It is the "rocket rider" — fewer but bigger trades with institutional timing.
 """
 
+import sys
 from binance.enums import SIDE_BUY, SIDE_SELL
 from src.trade import place_order
 from data.indicators import calculate_atr
@@ -95,7 +96,7 @@ async def check_bos_breakout_long(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_ba
     Requires: Bullish BOS within recent window + Retest pullback with rejection
               + 3x Volume on breakout + 1H EMA 21 trend alignment + VWAP + 4H ADX > 25.
     """
-    if bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
         return False
 
     # --- Global BOS Guards (cooldown, time filter) ---
@@ -259,7 +260,7 @@ async def check_bos_breakout_short(symbol, df_15m, df_4h, df_1h, stoch_k, usdt_b
     Requires: Bearish BOS within recent window + Retest pullback with rejection
               + 3x Volume on breakdown + 1H EMA 21 trend alignment + VWAP + 4H ADX > 25.
     """
-    if bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
         return False
 
     # --- Global BOS Guards (cooldown, time filter) ---

@@ -319,52 +319,70 @@
 
             // Render equity curve
             if (data.equity_curve && data.equity_curve.length > 0) {
-                const ctx = document.getElementById('equity-chart');
+                const canvas = document.getElementById('equity-chart');
+                const ctx = canvas.getContext('2d');
                 if (equityChart) equityChart.destroy();
 
-                equityChart = new Chart(ctx, {
+                let gradientFill = ctx.createLinearGradient(0, 0, 0, 180);
+                gradientFill.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+                gradientFill.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+                equityChart = new Chart(canvas, {
                     type: 'line',
                     data: {
                         labels: data.equity_curve.map(d => new Date(d.Timestamp).toLocaleString()),
                         datasets: [{
                             label: 'Cumulative P&L',
                             data: data.equity_curve.map(d => d.cumulative_pnl),
-                            borderColor: '#22c55e',
-                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            borderColor: '#10b981',
+                            backgroundColor: gradientFill,
                             tension: 0.4,
                             fill: true,
-                            pointRadius: 2,
-                            pointHoverRadius: 4,
+                            pointRadius: 0,
+                            pointHoverRadius: 6,
                             borderWidth: 2
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
                         plugins: {
                             legend: { display: false },
                             tooltip: {
-                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                                padding: 8,
-                                titleFont: { size: 10 },
-                                bodyFont: { size: 11 },
-                                titleColor: '#f1f5f9',
-                                bodyColor: '#e2e8f0',
-                                borderColor: 'rgba(59, 130, 246, 0.5)',
-                                borderWidth: 1
+                                backgroundColor: 'rgba(2, 6, 23, 0.95)',
+                                padding: 12,
+                                titleFont: { size: 11, family: 'Inter' },
+                                bodyFont: { size: 13, family: 'JetBrains Mono', weight: 'bold' },
+                                titleColor: '#94a3b8',
+                                bodyColor: '#f8fafc',
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                                borderWidth: 1,
+                                displayColors: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        let val = context.parsed.y;
+                                        return val >= 0 ? '+$' + val.toFixed(2) : '-$' + Math.abs(val).toFixed(2);
+                                    }
+                                }
                             }
                         },
                         scales: {
                             x: {
-                                grid: { color: 'rgba(148, 163, 184, 0.05)' },
-                                ticks: { color: '#64748b', font: { size: 9 }, maxRotation: 0 }
+                                grid: { display: false },
+                                ticks: { display: false }
                             },
                             y: {
-                                grid: { color: 'rgba(148, 163, 184, 0.05)' },
+                                border: { display: false },
+                                grid: { color: 'rgba(255, 255, 255, 0.03)', drawTicks: false },
                                 ticks: {
                                     color: '#64748b',
-                                    font: { size: 9 },
-                                    callback: value => '$' + value.toFixed(2)
+                                    font: { size: 10, family: 'JetBrains Mono' },
+                                    callback: value => '$' + value.toFixed(2),
+                                    padding: 10
                                 }
                             }
                         }

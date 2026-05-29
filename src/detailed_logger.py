@@ -5,6 +5,13 @@ import pandas as pd
 import json
 from src.state_manager import bot_state
 
+def _make_serializable(v):
+    if isinstance(v, (pd.Series, pd.DataFrame)):
+        return str(v)
+    if hasattr(v, 'item'):
+        return v.item()
+    return v
+
 # Define log file paths
 TRADE_LOG_CSV = 'logs/trade_log.csv'
 SIGNAL_LOG_CSV = 'logs/signal_log.csv'
@@ -49,12 +56,15 @@ def log_trade_entry(symbol, side, entry_price, quantity, stop_loss, indicators, 
             '2%',  # Your risk setting
             getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
             indicators.get('Reason', 'Bullish/Bearish confluence'),
-            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
+            json.dumps({k: _make_serializable(v) for k, v in indicators.items()})
         ])
 
-def log_trade_exit(symbol, side, entry_price, exit_price, quantity, pnl, exit_reason, roi):
+def log_trade_exit(symbol, side, entry_price, exit_price, quantity, pnl, exit_reason, roi, exit_type='UNKNOWN'):
     """
-    Log detailed trade exit information to CSV
+    Log detailed trade exit information to CSV.
+    exit_type: machine-readable tag — one of:
+        TIME_BASED | FUNDING_RATE | MARKET_STRUCTURE_BREAK | STOCH_EXTREME
+        EMERGENCY | TRAILING_STOP | EXCHANGE_SL_TP | MANUAL | UNKNOWN
     """
     file_exists = os.path.isfile(TRADE_LOG_CSV)
     
@@ -65,7 +75,7 @@ def log_trade_exit(symbol, side, entry_price, exit_price, quantity, pnl, exit_re
         if not file_exists:
             writer.writerow([
                 'Timestamp', 'Symbol', 'Side', 'Entry_Price', 'Exit_Price', 'Quantity',
-                'PnL_USDT', 'ROI_Percent', 'Exit_Reason', 'Notes'
+                'PnL_USDT', 'ROI_Percent', 'Exit_Reason', 'Exit_Type', 'Notes'
             ])
         
         # Write exit data
@@ -79,6 +89,7 @@ def log_trade_exit(symbol, side, entry_price, exit_price, quantity, pnl, exit_re
             pnl,
             roi,
             exit_reason,
+            exit_type,
             f"Trade closed: {exit_reason}"
         ])
 
@@ -120,7 +131,7 @@ def log_signal_analysis(symbol, indicators, decision, reason):
             indicators.get('SMA200_4h', 0),
             indicators.get('Price_vs_SMA200', 'BELOW'),
             getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
-            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
+            json.dumps({k: _make_serializable(v) for k, v in indicators.items()})
         ])
 
 def log_rejected_signal(symbol, side, indicators, rejection_reason):
@@ -157,6 +168,6 @@ def log_rejected_signal(symbol, side, indicators, rejection_reason):
             indicators.get('SMA_OK', False),
             indicators.get('HMA_OK', False),
             getattr(bot_state, 'global_btc_trend', 'UNKNOWN'),
-            json.dumps({k: str(v) if isinstance(v, (pd.Series, pd.DataFrame)) else v for k, v in indicators.items()})
+            json.dumps({k: _make_serializable(v) for k, v in indicators.items()})
         ])
 

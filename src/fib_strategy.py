@@ -1,3 +1,4 @@
+import sys
 from binance.enums import *
 from src.trade import place_order
 from data.indicators import *
@@ -13,7 +14,7 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     # --- Global BTC Filter ---
     from src.state_manager import bot_state
-    if bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
         if VERBOSE_LOGGING:
             print(f"Skipping LONG for {symbol}: Global BTC trend is BEARISH.")
         return False
@@ -168,7 +169,7 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
     """
     # --- Global BTC Filter ---
     from src.state_manager import bot_state
-    if bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
         if VERBOSE_LOGGING:
             print(f"Skipping SHORT for {symbol}: Global BTC trend is BULLISH.")
         return False

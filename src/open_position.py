@@ -1,3 +1,4 @@
+import sys
 from binance.enums import *
 from src.trade import place_order
 from data.indicators import *
@@ -16,7 +17,7 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
     # NOTE: Cooldown lockout is enforced in process_symbol() before this function is called.
 
     # --- Global BTC Filter ---
-    if bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BEARISH' and symbol != 'BTCUSDT':
         if VERBOSE_LOGGING:
             print(f"Skipping LONG for {symbol}: Global BTC trend is BEARISH.")
         log_rejected_signal(symbol, 'LONG', {}, "Global BTC trend is BEARISH")
@@ -68,6 +69,27 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
             if VERBOSE_LOGGING:
                 print(f"Skipping LONG for {symbol}: Price (${current_price:.2f}) below VWAP (${vwap:.2f}).")
             log_rejected_signal(symbol, 'LONG', {'Price': current_price, 'VWAP': vwap}, "Price below VWAP")
+            return False
+
+    # === NEW: Exhaustion Guard ===
+    if getattr(strategy_toggles, 'REQUIRE_ATR_EXHAUSTION_GUARD', False):
+        candle_high = df_15m['high'].iloc[-1]
+        candle_low = df_15m['low'].iloc[-1]
+        candle_size = candle_high - candle_low
+        if candle_size > atr_value * MAX_CANDLE_ATR_MULTIPLIER:
+            if VERBOSE_LOGGING:
+                print(f"Skipping LONG for {symbol}: Trigger candle size ({candle_size:.4f}) exceeds {MAX_CANDLE_ATR_MULTIPLIER}x ATR ({atr_value:.4f}). Exhaustion risk.")
+            log_rejected_signal(symbol, 'LONG', {'Candle_Size': candle_size, 'ATR': atr_value}, "ATR Exhaustion Guard")
+            return False
+
+    # === NEW: Mean-Reversion Guard (Bollinger Bands) ===
+    if getattr(strategy_toggles, 'REQUIRE_BB_REVERSION_GUARD', False) and 'BB_Upper' in df_15m.columns:
+        current_price = df_15m['close'].iloc[-1]
+        bb_upper = df_15m['BB_Upper'].iloc[-1]
+        if pd.notna(bb_upper) and current_price > bb_upper:
+            if VERBOSE_LOGGING:
+                print(f"Skipping LONG for {symbol}: Price (${current_price:.4f}) is pushing above upper Bollinger Band (${bb_upper:.4f}). Mean-reversion risk.")
+            log_rejected_signal(symbol, 'LONG', {'Price': current_price, 'BB_Upper': bb_upper}, "Bollinger Band Reversion Guard")
             return False
 
     # === PHASE 2 IMPROVEMENT: Volume Anomaly Detection ===
@@ -126,7 +148,7 @@ async def open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, st
             }
 
             print(f"\n{'='*60}")
-            print(f"🚀 TRADE SIGNAL: LONG {symbol}")
+            print(f"🚀 [Stochastic Pullback] TRADE SIGNAL: LONG {symbol}")
             print(f"   ADX: {adx_value:.1f} | Stoch: {stoch_k_15m.iloc[-1]:.1f} | ROC: {df_15m['roc'].iloc[-1]:+.2f}%")
             print(f"   MACD Hist: {df_15m['macd_hist'].iloc[-1]:.4f} | HMA: UP")
             print(f"   Entry: Bullish confluence (Aggressive)")
@@ -191,7 +213,7 @@ async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, s
     # NOTE: Cooldown lockout is enforced in process_symbol() before this function is called.
 
     # --- Global BTC Filter ---
-    if bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
+    if getattr(sys.modules['config.settings'], 'ENABLE_GLOBAL_BTC_FILTER', True) and bot_state.global_btc_trend == 'BULLISH' and symbol != 'BTCUSDT':
         if VERBOSE_LOGGING:
             print(f"Skipping SHORT for {symbol}: Global BTC trend is BULLISH.")
         log_rejected_signal(symbol, 'SHORT', {}, "Global BTC trend is BULLISH")
@@ -245,6 +267,27 @@ async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, s
             log_rejected_signal(symbol, 'SHORT', {'Price': current_price, 'VWAP': vwap}, "Price above VWAP")
             return False
 
+    # === NEW: Exhaustion Guard ===
+    if getattr(strategy_toggles, 'REQUIRE_ATR_EXHAUSTION_GUARD', False):
+        candle_high = df_15m['high'].iloc[-1]
+        candle_low = df_15m['low'].iloc[-1]
+        candle_size = candle_high - candle_low
+        if candle_size > atr_value * MAX_CANDLE_ATR_MULTIPLIER:
+            if VERBOSE_LOGGING:
+                print(f"Skipping SHORT for {symbol}: Trigger candle size ({candle_size:.4f}) exceeds {MAX_CANDLE_ATR_MULTIPLIER}x ATR ({atr_value:.4f}). Exhaustion risk.")
+            log_rejected_signal(symbol, 'SHORT', {'Candle_Size': candle_size, 'ATR': atr_value}, "ATR Exhaustion Guard")
+            return False
+
+    # === NEW: Mean-Reversion Guard (Bollinger Bands) ===
+    if getattr(strategy_toggles, 'REQUIRE_BB_REVERSION_GUARD', False) and 'BB_Lower' in df_15m.columns:
+        current_price = df_15m['close'].iloc[-1]
+        bb_lower = df_15m['BB_Lower'].iloc[-1]
+        if pd.notna(bb_lower) and current_price < bb_lower:
+            if VERBOSE_LOGGING:
+                print(f"Skipping SHORT for {symbol}: Price (${current_price:.4f}) is pushing below lower Bollinger Band (${bb_lower:.4f}). Mean-reversion risk.")
+            log_rejected_signal(symbol, 'SHORT', {'Price': current_price, 'BB_Lower': bb_lower}, "Bollinger Band Reversion Guard")
+            return False
+
     # === PHASE 2 IMPROVEMENT: Volume Anomaly Detection ===
     if getattr(strategy_toggles, 'REQUIRE_VOLUME_ANOMALY', False):
         if not df_15m['volume_anomaly'].iloc[-1]:
@@ -288,7 +331,7 @@ async def open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, s
         has_bearish_momentum = df_15m['roc'].iloc[-1] < -ROC_MOMENTUM_THRESHOLD
 
         if (stochastic_signal and macd_bearish and hma_is_sloping_down and has_bearish_momentum):
-            print(f"🚀 TRADE SIGNAL: SHORT {symbol}")
+            print(f"🚀 [Stochastic Pullback] TRADE SIGNAL: SHORT {symbol}")
             print(f"   ADX: {adx_value:.1f} | Stoch: {stoch_k_15m.iloc[-1]:.1f} | ROC: {df_15m['roc'].iloc[-1]:+.2f}%")
             print(f"   MACD Hist: {df_15m['macd_hist'].iloc[-1]:.4f} | HMA: DOWN")
             print(f"   Entry: Bearish confluence (Aggressive)")

@@ -12,53 +12,6 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     reason = None
     last_close = df['close'].iloc[-1]
     
-    # === PHASE 1 IMPROVEMENT: Partial Profit Taking ===
-    if ENABLE_PARTIAL_PROFITS:
-        # Take 50% profit at 2R (2:1 Risk/Reward)
-        if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):
-            try:
-                partial_size = abs(position) * PARTIAL_TP1_SIZE
-                partial_size = round_quantity(symbol, partial_size)
-                if partial_size > 0:
-                    print(f"💰 Taking {PARTIAL_TP1_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP1_RR}R) for {symbol}")
-                    await asyncio.to_thread(
-                        client.futures_create_order,
-                        symbol=symbol, 
-                        side=SIDE_SELL, 
-                        type=ORDER_TYPE_MARKET, 
-                        quantity=partial_size, 
-                        reduceOnly=True
-                    )
-                    bot_state.partial_tp1_taken[symbol] = True
-            except Exception as e:
-                print(f"Error taking partial profit 1 for {symbol}: {e}")
-        
-        # Take 25% of remaining (which is 25% of original) at 3R
-        if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
-            try:
-                # 25% of the remaining position (which is 50% of original after TP1)
-                partial_size = abs(position) * (1 - PARTIAL_TP1_SIZE) * PARTIAL_TP2_SIZE
-                partial_size = round_quantity(symbol, partial_size)
-                if partial_size > 0:
-                    print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
-                    await asyncio.to_thread(
-                        client.futures_create_order,
-                        symbol=symbol, 
-                        side=SIDE_SELL, 
-                        type=ORDER_TYPE_MARKET, 
-                        quantity=partial_size, 
-                        reduceOnly=True
-                    )
-                    bot_state.partial_tp2_taken[symbol] = True
-            except Exception as e:
-                print(f"Error taking partial profit 2 for {symbol}: {e}")
-    
-    # --- BREAKEVEN LOGIC --- (threshold from settings.py: BREAKEVEN_ROI_THRESHOLD)
-    
-    if roi >= BREAKEVEN_ROI_THRESHOLD and not bot_state.breakeven_triggered.get(symbol):
-        print(f"✅ ROI for {symbol} hit {roi:.2f}%. Moving stop-loss to breakeven.")
-        if await move_stop_to_breakeven(symbol, entry_price, SIDE_BUY):
-            bot_state.breakeven_triggered[symbol] = True
 
     # --- TIER 1 EXIT CONDITIONS ---
 
@@ -67,8 +20,11 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         entry_time = bot_state.entry_timestamps.get(symbol)
         if entry_time:
             hours_held = (time.time() - entry_time) / 3600
-            if hours_held >= MAX_HOLD_TIME_HOURS:
-                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {MAX_HOLD_TIME_HOURS}h). Freeing up capital."
+            # Strategy-specific hold time: 12h for swing trades (Fib/VWAP), 8h default for others
+            entry_reason = bot_state.entry_reasons.get(symbol, "").lower()
+            max_hold = MAX_HOLD_TIME_HOURS_SWING if ('fib' in entry_reason or 'vwap' in entry_reason) else MAX_HOLD_TIME_HOURS_DEFAULT
+            if hours_held >= max_hold:
+                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {max_hold}h). Freeing up capital."
     
     # 2. Funding Rate Exit
     if not reason and ENABLE_FUNDING_RATE_EXIT:
@@ -91,14 +47,21 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
     # --- SECONDARY EXIT: Profit-Taking in Extreme Conditions (with Divergence Guard) ---
     stoch_crossed_down = stoch_k.iloc[-1] < stoch_d.iloc[-1] and stoch_k.iloc[-2] >= stoch_d.iloc[-2]
     if stoch_k.iloc[-1] > STOCH_EXTREME_PROFIT_TAKE and stoch_crossed_down and not reason:
-        # Institutional divergence guard: if RSI shows bullish divergence, the move has more fuel.
-        # Do NOT exit prematurely — hold and let the trend continue.
-        bullish_div, _ = detect_rsi_divergence(df, lookback=EXIT_RSI_DIV_LOOKBACK)
-        if bullish_div:
+        # Prevent race condition: do not exit via stochastic extreme if partial profit has already been taken
+        entry_qty = bot_state.entry_quantities.get(symbol)
+        is_partial_tp_hit = entry_qty and abs(position) < (entry_qty * 0.95)
+        if is_partial_tp_hit:
             if VERBOSE_LOGGING:
-                print(f"📊 RSI Bullish Divergence detected for {symbol} — holding long despite stoch crossdown.")
+                print(f"📊 Stochastic extreme overbought check skipped for {symbol} because partial TP was already hit.")
         else:
-            reason = f"Profit Take: Stochastic crossed down in extreme overbought zone ({stoch_k.iloc[-1]:.2f})."
+            # Institutional divergence guard: if RSI shows bullish divergence, the move has more fuel.
+            # Do NOT exit prematurely — hold and let the trend continue.
+            bullish_div, _ = detect_rsi_divergence(df, lookback=EXIT_RSI_DIV_LOOKBACK)
+            if bullish_div:
+                if VERBOSE_LOGGING:
+                    print(f"📊 RSI Bullish Divergence detected for {symbol} — holding long despite stoch crossdown.")
+            else:
+                reason = f"Profit Take: Stochastic crossed down in extreme overbought zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:
         print(f"Closing long position for {symbol}. Reason: {reason}")
@@ -112,6 +75,7 @@ async def close_position_long(symbol, position, roi, df, stoch_k, stoch_d, resis
         bot_state.partial_tp1_taken.pop(symbol, None)
         bot_state.partial_tp2_taken.pop(symbol, None)
         bot_state.entry_timestamps.pop(symbol, None)
+        bot_state.entry_reasons.pop(symbol, None)
         return True
 
     return False
@@ -120,53 +84,6 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     reason = None
     last_close = df['close'].iloc[-1]
 
-    # === PHASE 1 IMPROVEMENT: Partial Profit Taking ===
-    if ENABLE_PARTIAL_PROFITS:
-        # Take 50% profit at 2R (2:1 Risk/Reward)
-        if roi >= PARTIAL_TP1_RR and not bot_state.partial_tp1_taken.get(symbol, False):
-            try:
-                partial_size = abs(position) * PARTIAL_TP1_SIZE
-                partial_size = round_quantity(symbol, partial_size)
-                if partial_size > 0:
-                    print(f"💰 Taking {PARTIAL_TP1_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP1_RR}R) for {symbol}")
-                    await asyncio.to_thread(
-                        client.futures_create_order,
-                        symbol=symbol, 
-                        side=SIDE_BUY, 
-                        type=ORDER_TYPE_MARKET, 
-                        quantity=partial_size, 
-                        reduceOnly=True
-                    )
-                    bot_state.partial_tp1_taken[symbol] = True
-            except Exception as e:
-                print(f"Error taking partial profit 1 for {symbol}: {e}")
-        
-        # Take 25% of remaining at 3R
-        if roi >= PARTIAL_TP2_RR and bot_state.partial_tp1_taken.get(symbol, False) and not bot_state.partial_tp2_taken.get(symbol, False):
-            try:
-                # 25% of the remaining position (which is 50% of original after TP1)
-                partial_size = abs(position) * (1 - PARTIAL_TP1_SIZE) * PARTIAL_TP2_SIZE
-                partial_size = round_quantity(symbol, partial_size)
-                if partial_size > 0:
-                    print(f"💰 Taking {PARTIAL_TP2_SIZE*100}% profit at {roi:.2f}% ROI ({PARTIAL_TP2_RR}R) for {symbol}")
-                    await asyncio.to_thread(
-                        client.futures_create_order,
-                        symbol=symbol, 
-                        side=SIDE_BUY, 
-                        type=ORDER_TYPE_MARKET, 
-                        quantity=partial_size, 
-                        reduceOnly=True
-                    )
-                    bot_state.partial_tp2_taken[symbol] = True
-            except Exception as e:
-                print(f"Error taking partial profit 2 for {symbol}: {e}")
-
-    # --- BREAKEVEN LOGIC --- (threshold from settings.py: BREAKEVEN_ROI_THRESHOLD)
-
-    if roi >= BREAKEVEN_ROI_THRESHOLD and not bot_state.breakeven_triggered.get(symbol):
-        print(f"✅ ROI for {symbol} hit {roi:.2f}%. Moving stop-loss to breakeven.")
-        if await move_stop_to_breakeven(symbol, entry_price, SIDE_SELL):
-            bot_state.breakeven_triggered[symbol] = True
 
     # --- TIER 1 EXIT CONDITIONS ---
 
@@ -175,8 +92,11 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         entry_time = bot_state.entry_timestamps.get(symbol)
         if entry_time:
             hours_held = (time.time() - entry_time) / 3600
-            if hours_held >= MAX_HOLD_TIME_HOURS:
-                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {MAX_HOLD_TIME_HOURS}h). Freeing up capital."
+            # Strategy-specific hold time: 12h for swing trades (Fib/VWAP), 8h default for others
+            entry_reason = bot_state.entry_reasons.get(symbol, "").lower()
+            max_hold = MAX_HOLD_TIME_HOURS_SWING if ('fib' in entry_reason or 'vwap' in entry_reason) else MAX_HOLD_TIME_HOURS_DEFAULT
+            if hours_held >= max_hold:
+                reason = f"Time-Based Exit: Position held for {hours_held:.1f} hours (max: {max_hold}h). Freeing up capital."
     
     # 2. Funding Rate Exit
     if not reason and ENABLE_FUNDING_RATE_EXIT:
@@ -199,13 +119,20 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
     # --- SECONDARY EXIT: Profit-Taking in Extreme Conditions (with Divergence Guard) ---
     stoch_crossed_up = stoch_k.iloc[-1] > stoch_d.iloc[-1] and stoch_k.iloc[-2] <= stoch_d.iloc[-2]
     if stoch_k.iloc[-1] < (100 - STOCH_EXTREME_PROFIT_TAKE) and stoch_crossed_up and not reason:
-        # Institutional divergence guard: if RSI shows bearish divergence, the move has more fuel.
-        _, bearish_div = detect_rsi_divergence(df, lookback=EXIT_RSI_DIV_LOOKBACK)
-        if bearish_div:
+        # Prevent race condition: do not exit via stochastic extreme if partial profit has already been taken
+        entry_qty = bot_state.entry_quantities.get(symbol)
+        is_partial_tp_hit = entry_qty and abs(position) < (entry_qty * 0.95)
+        if is_partial_tp_hit:
             if VERBOSE_LOGGING:
-                print(f"📊 RSI Bearish Divergence detected for {symbol} — holding short despite stoch crossup.")
+                print(f"📊 Stochastic extreme oversold check skipped for {symbol} because partial TP was already hit.")
         else:
-            reason = f"Profit Take: Stochastic crossed up in extreme oversold zone ({stoch_k.iloc[-1]:.2f})."
+            # Institutional divergence guard: if RSI shows bearish divergence, the move has more fuel.
+            _, bearish_div = detect_rsi_divergence(df, lookback=EXIT_RSI_DIV_LOOKBACK)
+            if bearish_div:
+                if VERBOSE_LOGGING:
+                    print(f"📊 RSI Bearish Divergence detected for {symbol} — holding short despite stoch crossup.")
+            else:
+                reason = f"Profit Take: Stochastic crossed up in extreme oversold zone ({stoch_k.iloc[-1]:.2f})."
 
     if reason:
         print(f"Closing short position for {symbol}. Reason: {reason}")
@@ -219,6 +146,7 @@ async def close_position_short(symbol, position, roi, df, stoch_k, stoch_d, supp
         bot_state.partial_tp1_taken.pop(symbol, None)
         bot_state.partial_tp2_taken.pop(symbol, None)
         bot_state.entry_timestamps.pop(symbol, None)
+        bot_state.entry_reasons.pop(symbol, None)
         return True
         
     return False

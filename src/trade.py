@@ -26,188 +26,52 @@ from config.client import client
 
 
 def place_algo_stop_loss(symbol, side, stop_price, quantity, working_type='CONTRACT_PRICE'):
-    """
-    Places a STOP_MARKET order using Binance's new Algo Order API endpoint.
-    Required since December 9, 2025 when Binance migrated conditional orders.
-    
-    Args:
-        symbol: Trading pair (e.g., 'BTCUSDT')
-        side: 'BUY' or 'SELL'
-        stop_price: Trigger price for the stop-loss
-        quantity: Position quantity to close
-        working_type: 'CONTRACT_PRICE' or 'MARK_PRICE'
-    
-    Returns:
-        dict: API response containing order details
-    """
-    
-    base_url = 'https://fapi.binance.com'
-    endpoint = '/fapi/v1/algoOrder'
-    
-    # Prepare parameters (don't include signature yet)
-    timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-    params = {
-        'symbol': symbol,
-        'side': side,
-        'algoType': 'CONDITIONAL',  # Required for STOP_MARKET orders
-        'type': 'STOP_MARKET',
-        'triggerprice': float(stop_price),  # Binance uses lowercase triggerprice
-        'closePosition': 'true',            # Must use closePosition for full exit to avoid matching engine cancellation
-        'workingType': working_type,
-        'timestamp': timestamp
-    }
-    
-    # Create query string for signature (parameters in original order, URL encoded)
-    query_string = urlencode(params)
-    
-    # Generate signature
-    signature = hmac.new(
-        API_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    # Add signature to params
-    params['signature'] = signature
-    
-    # Make request
-    headers = {
-        'X-MBX-APIKEY': API_KEY
-    }
-    
-    response = requests.post(
-        base_url + endpoint,
-        params=params,
-        headers=headers,
-        timeout=10
+    return client.futures_create_order(
+        symbol=symbol,
+        side=side,
+        type='STOP_MARKET',
+        stopPrice=stop_price,
+        closePosition=True,
+        workingType=working_type
     )
-    
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise Exception(f"Algo Order API Error: {response.status_code} - {response.text}")
-
 
 def place_algo_take_profit(symbol, side, take_profit_price, quantity, working_type='CONTRACT_PRICE'):
-    """
-    Places a TAKE_PROFIT_MARKET order using Binance's new Algo Order API endpoint.
-    Required since December 9, 2025 when Binance migrated conditional orders.
-    
-    Args:
-        symbol: Trading pair (e.g., 'BTCUSDT')
-        side: 'BUY' or 'SELL'
-        take_profit_price: Trigger price for take-profit
-        quantity: Position quantity to close
-        working_type: 'CONTRACT_PRICE' or 'MARK_PRICE'
-    
-    Returns:
-        dict: API response containing order details
-    """
-    
-    base_url = 'https://fapi.binance.com'
-    endpoint = '/fapi/v1/algoOrder'
-    
-    # Prepare parameters (don't include signature yet)
-    timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-    params = {
-        'symbol': symbol,
-        'side': side,
-        'algoType': 'CONDITIONAL',  # Required for TAKE_PROFIT orders
-        'type': 'TAKE_PROFIT_MARKET',
-        'triggerprice': float(take_profit_price),  # Binance uses lowercase triggerprice
-        'closePosition': 'true',                    # Must use closePosition for full exit to avoid matching engine cancellation
-        'workingType': working_type,
-        'timestamp': timestamp
-    }
-    
-    # Create query string for signature (parameters in original order, URL encoded)
-    query_string = urlencode(params)
-    
-    # Generate signature
-    signature = hmac.new(
-        API_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    # Add signature to params
-    params['signature'] = signature
-    
-    # Make request
-    headers = {
-        'X-MBX-APIKEY': API_KEY
-    }
-    
-    response = requests.post(
-        base_url + endpoint,
-        params=params,
-        headers=headers,
-        timeout=10
+    return client.futures_create_order(
+        symbol=symbol,
+        side=side,
+        type='TAKE_PROFIT_MARKET',
+        stopPrice=take_profit_price,
+        quantity=quantity,
+        reduceOnly=True,
+        workingType=working_type
     )
-    
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise Exception(f"Algo Order API Error: {response.status_code} - {response.text}")
-
 
 def cancel_algo_stop_loss_orders(symbol):
-    """
-    Finds and cancels only STOP_MARKET Algo Orders for a specific symbol.
-    Leaves TAKE_PROFIT_MARKET Algo Orders alone.
-    """
     _cancel_algo_orders_by_type(symbol, target_types=('STOP_MARKET', 'ALGO'), label='Stop Loss')
 
 def cancel_algo_take_profit_orders(symbol):
-    """
-    Finds and cancels only TAKE_PROFIT_MARKET Algo Orders for a specific symbol.
-    Prevents orphan TP orders from surviving after a position is closed.
-    """
     _cancel_algo_orders_by_type(symbol, target_types=('TAKE_PROFIT_MARKET',), label='Take Profit')
 
 def _cancel_algo_orders_by_type(symbol, target_types, label=''):
-    """
-    Internal helper: fetches open Algo Orders and cancels those matching target_types.
-    """
-    
-    base_url = 'https://fapi.binance.com'
-    endpoint = '/fapi/v1/openAlgoOrders'
-    
-    timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-    params = {'symbol': symbol, 'timestamp': timestamp}
-    query_string = urlencode(params)
-    signature = hmac.new(API_SECRET.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
-    params['signature'] = signature
-    headers = {'X-MBX-APIKEY': API_KEY}
-    
-    # 1. Get all open Algo Orders
     try:
-        response = requests.get(base_url + endpoint, params=params, headers=headers, timeout=10)
-        if response.status_code == 200:
-            algo_orders = response.json()
-            if 'orders' in algo_orders:
-                algo_orders = algo_orders['orders'] # Depending on Binance API version wrapper
-            elif isinstance(algo_orders, dict) and 'items' in algo_orders:
-                algo_orders = algo_orders['items']
+        algo_orders = client.futures_get_open_algo_orders(symbol=symbol)
+        algo_orders = algo_orders.get('orders', algo_orders.get('items', algo_orders)) if isinstance(algo_orders, dict) else algo_orders
+        if not isinstance(algo_orders, list):
+            return
+            
+        for order in algo_orders:
+            order_type = order.get('type', order.get('orderType', ''))
+            is_sl = order_type in ('STOP_MARKET', 'ALGO') or 'STOP' in order_type
+            is_tp = 'TAKE_PROFIT' in order_type
+            
+            should_cancel = False
+            if 'STOP_MARKET' in target_types and is_sl:
+                should_cancel = True
+            if 'TAKE_PROFIT_MARKET' in target_types and is_tp:
+                should_cancel = True
                 
-            if not isinstance(algo_orders, list):
-                # Safe fallback if format is unexpected
-                return
-                
-            # 2. Cancel only the matching types
-            cancel_endpoint = '/fapi/v1/algoOrder'
-            for order in algo_orders:
-                if order.get('type') in target_types:
-                    cancel_params = {
-                        'symbol': symbol,
-                        'algoId': order.get('algoId'),
-                        'timestamp': int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-                    }
-                    cancel_qs = urlencode(cancel_params)
-                    cancel_sig = hmac.new(API_SECRET.encode('utf-8'), cancel_qs.encode('utf-8'), hashlib.sha256).hexdigest()
-                    cancel_params['signature'] = cancel_sig
-                    
-                    requests.delete(base_url + cancel_endpoint, params=cancel_params, headers=headers, timeout=10)
+            if should_cancel:
+                client.futures_cancel_algo_order(symbol=symbol, algoId=order.get('algoId'))
     except Exception as e:
         print(f"Error checking/canceling Algo {label} for {symbol}: {e}")
 
@@ -220,13 +84,29 @@ async def manage_active_trades(active_positions):
         pass
     for position_obj in active_positions:
         symbol = position_obj['symbol']
-        unrealized_profit = float(position_obj.get('unrealizedProfit', 0))
+        current_qty = abs(float(position_obj['positionAmt']))
+        
+        # --- Dynamic Volume-Based Breakeven Check ---
+        from src.state_manager import bot_state
+        if symbol in bot_state.entry_quantities and not bot_state.breakeven_triggered.get(symbol):
+            entry_qty = bot_state.entry_quantities[symbol]
+            # If current quantity is less than 95% of entry quantity, a partial TP limit order executed offline!
+            if current_qty < (entry_qty * 0.95):
+                print(f"✅ Partial Take Profit detected for {symbol} ({current_qty} < {entry_qty}). Moving Stop Loss to Breakeven.")
+                position_side = SIDE_BUY if float(position_obj['positionAmt']) > 0 else SIDE_SELL
+                entry_price = float(position_obj['entryPrice'])
+                await move_stop_to_breakeven(symbol, entry_price, position_side)
+                bot_state.breakeven_triggered[symbol] = True
+                bot_state.save_state()
+
+        # Fix: Binance API returns 'unRealizedProfit' with a capital R.
+        unrealized_profit = float(position_obj.get('unRealizedProfit', 0))
 
         if unrealized_profit > 0:
             print(f"✅ Position for {symbol} is profitable. Managing ATR trailing stop.")
             
-            # fetch_multi_timeframe_data returns 11 values — unpack all of them
-            df_15m, _, _, _, _, _, _, _, _, _, _ = await asyncio.to_thread(
+            # fetch_multi_timeframe_data returns 14 values
+            df_15m, _, _, _, _, _, _, _, _, _, _, _, _, _ = await asyncio.to_thread(
                 fetch_multi_timeframe_data, symbol, EXECUTION_TIMEFRAME, INTERMEDIATE_TIMEFRAME, PRIMARY_TIMEFRAME
             )
             df_15m = calculate_atr(df_15m)
@@ -313,54 +193,21 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
     if not current_price:
         return
 
-    open_orders = await asyncio.to_thread(client.futures_get_open_orders, symbol=symbol)
     current_stop_price = None
-    for order in open_orders:
-        if order['type'] in ('STOP_MARKET', 'ALGO'):
-            current_stop_price = float(order['stopPrice'])
-            break
-            
-    # If not found in standard orders, check Algo Orders
-    if current_stop_price is None:
-        from config.secrets import API_KEY, API_SECRET
-        
-        base_url = 'https://fapi.binance.com'
-        endpoint = '/fapi/v1/openAlgoOrders'
-        
-        timestamp = int(time.time() * 1000) + getattr(client, 'timestamp_offset', 0)
-        params = {'symbol': symbol, 'timestamp': timestamp}
-        query_string = urlencode(params)
-        signature = hmac.new(API_SECRET.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
-        params['signature'] = signature
-        headers = {'X-MBX-APIKEY': API_KEY}
-        
-        def fetch_algo():
-            return requests.get(base_url + endpoint, params=params, headers=headers, timeout=10)
-            
-        try:
-            response = await asyncio.to_thread(fetch_algo)
-            if response.status_code == 200:
-                algo_orders = response.json()
-                if 'orders' in algo_orders:
-                    algo_orders = algo_orders['orders']
-                elif isinstance(algo_orders, dict) and 'items' in algo_orders:
-                    algo_orders = algo_orders['items']
-                    
-                if isinstance(algo_orders, list):
-                    for order in algo_orders:
-                        order_type = order.get('type', '')
-                        if order_type in ('STOP_MARKET', 'ALGO') or 'STOP' in order_type:
-                            # Try all known field names for the trigger price
-                            current_stop_price = float(
-                                order.get('stopPrice',
-                                order.get('triggerprice',
-                                order.get('triggerPrice',
-                                order.get('price', 0))))
-                            )
-                            break
-        except Exception as e:
-            if VERBOSE_LOGGING:
-                print(f"Could not fetch algo orders for trailing stop on {symbol}: {e}")
+    
+    # Use python-binance to fetch open algo orders (stop losses)
+    try:
+        algo_orders = await asyncio.to_thread(client.futures_get_open_algo_orders, symbol=symbol)
+        algo_orders = algo_orders.get('orders', algo_orders.get('items', algo_orders)) if isinstance(algo_orders, dict) else algo_orders
+        if isinstance(algo_orders, list):
+            for order in algo_orders:
+                order_type = order.get('type', order.get('orderType', ''))
+                if order_type in ('STOP_MARKET', 'ALGO') or 'STOP' in order_type:
+                    current_stop_price = float(order.get('triggerPrice', order.get('stopPrice', order.get('price', 0))))
+                    break
+    except Exception as e:
+        if VERBOSE_LOGGING:
+            print(f"Could not fetch algo orders for trailing stop on {symbol}: {e}")
 
     if current_stop_price is None or current_stop_price == 0:
         if VERBOSE_LOGGING:
@@ -385,17 +232,42 @@ async def manage_atr_trailing_stop(symbol, position_obj, atr_value):
 async def update_stop_loss(symbol, new_stop_price, side):
     """
     Cancels the old stop loss and places a new, updated one.
+    Reverts to the old stop loss if the new one fails to place.
     """
     try:
-        # 1. Cancel standard stop market orders (legacy)
+        # Fetch the existing old stop loss price before canceling
         open_orders = await asyncio.to_thread(client.futures_get_open_orders, symbol=symbol)
+        old_stop_price = None
         for order in open_orders:
             if order['type'] in ('STOP_MARKET', 'ALGO'):
-                await asyncio.to_thread(client.futures_cancel_order, symbol=symbol, orderId=order['orderId'])
+                old_stop_price = float(order['stopPrice'])
+                break
+                
+        if old_stop_price is None:
+            # Check Algo orders if not found in standard open_orders
+            try:
+                algo_orders = await asyncio.to_thread(client.futures_get_open_algo_orders, symbol=symbol)
+                algo_orders = algo_orders.get('orders', algo_orders.get('items', algo_orders)) if isinstance(algo_orders, dict) else algo_orders
+                if isinstance(algo_orders, list):
+                    for order in algo_orders:
+                        if order.get('type', order.get('orderType', '')) in ('STOP_MARKET', 'ALGO'):
+                            old_stop_price = float(order.get('triggerPrice', order.get('stopPrice', 0)))
+                            break
+            except Exception:
+                pass
 
-        # 2. Cancel ALGO stop market orders (new Binance logic)
-        # MUST wrap in to_thread because cancel_algo_stop_loss_orders uses blocking requests
-        await asyncio.to_thread(cancel_algo_stop_loss_orders, symbol)
+        # Cancel ALL existing stop-loss orders (both standard and algo API)
+        # CRITICAL: place_algo_stop_loss now uses futures_create_order (standard orders),
+        # so cancel_algo_stop_loss_orders would miss them. Use cancel_open_orders instead.
+        await cancel_open_orders(symbol, cancel_sl=True, cancel_tp=False)
+        
+        # Verify cancellation succeeded before placing new SL
+        remaining_sl = await asyncio.to_thread(client.futures_get_open_orders, symbol=symbol)
+        remaining_sl = [o for o in remaining_sl if 'STOP' in o.get('type', '')]
+        if remaining_sl:
+            print(f"⚠️  {len(remaining_sl)} SL order(s) still active after cancel attempt for {symbol}. Retrying...")
+            await asyncio.to_thread(client.futures_cancel_all_open_orders, symbol=symbol)
+        
         stop_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         new_stop_price_rounded = round_price(symbol, new_stop_price)
         
@@ -444,10 +316,18 @@ async def update_stop_loss(symbol, new_stop_price, side):
                 print(f"✅ Trailing stop updated for {symbol} to {new_stop_price_rounded} (ALGO API/MARK_PRICE)")
             except Exception as sl_error_2:
                 print(f"❌ All methods failed to update trailing stop: {sl_error_2}")
-                raise sl_error_2
+                # Don't raise here yet, we need to handle the fallback below
         
         if not stop_loss_placed:
-            print(f"⚠️ Failed to update trailing stop for {symbol}, keeping old stop-loss")
+            print(f"⚠️ Failed to update trailing stop for {symbol}, attempting to restore old stop-loss at {old_stop_price}...")
+            if old_stop_price:
+                try:
+                    await asyncio.to_thread(place_algo_stop_loss, symbol, stop_side, round_price(symbol, old_stop_price), position_qty, 'CONTRACT_PRICE')
+                    print(f"✅ Successfully restored old stop loss at {old_stop_price}")
+                except Exception as restore_err:
+                    print(f"❌ CRITICAL FAILURE: Could not restore old stop loss! POSITION {symbol} IS UNPROTECTED! Error: {restore_err}")
+            else:
+                print(f"❌ CRITICAL FAILURE: No old stop price was found to restore! POSITION {symbol} IS UNPROTECTED!")
 
     except Exception as e:
         print(f"Error updating trailing stop for {symbol}: {e}")
@@ -471,30 +351,38 @@ def log_trade(data):
 
 async def cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True):
     try:
-        # If we need to cancel both, use the official Binance "nuke" command 
-        # which guarantees removal of ALL standard and ALGO orders.
         if cancel_sl and cancel_tp:
+            # Safe to wipe everything
             await asyncio.to_thread(client.futures_cancel_all_open_orders, symbol=symbol)
             return
 
-        # Fallback for partial cancellation (used only during breakeven adjustment)
-        open_orders = await asyncio.to_thread(client.futures_get_open_orders, symbol=symbol)
+        # Need selective cancellation to avoid wiping trailing stops or tiered TPs
         
-        if open_orders:
+        def _selective_cancel():
+            # 1. Standard Orders
+            open_orders = client.futures_get_open_orders(symbol=symbol)
             for order in open_orders:
-                order_type = order['type']
-                should_cancel = (cancel_sl and 'STOP' in order_type) or \
-                                (cancel_tp and 'PROFIT' in order_type)
+                order_type = order.get('type', '')
+                is_sl = 'STOP' in order_type
+                is_tp = 'TAKE_PROFIT' in order_type
                 
-                if should_cancel:
-                    await asyncio.to_thread(client.futures_cancel_order, symbol=symbol, orderId=order['orderId'])
+                if (cancel_sl and is_sl) or (cancel_tp and is_tp):
+                    client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
                     
-        # ALGO ORDERS FALLBACK: Since the above API does not see ALGO orders, we must manually query and cancel them
-        if cancel_sl:
-            await asyncio.to_thread(cancel_algo_stop_loss_orders, symbol)
-        if cancel_tp:
-            await asyncio.to_thread(cancel_algo_take_profit_orders, symbol)
-            
+            # 2. Algo Orders (since they don't show up in standard open orders)
+            algo_orders = client.futures_get_open_algo_orders(symbol=symbol)
+            algo_orders = algo_orders.get('orders', algo_orders.get('items', algo_orders)) if isinstance(algo_orders, dict) else algo_orders
+            if isinstance(algo_orders, list):
+                for order in algo_orders:
+                    order_type = order.get('type', order.get('orderType', ''))
+                    is_sl = order_type in ('STOP_MARKET', 'ALGO') or 'STOP' in order_type
+                    is_tp = 'TAKE_PROFIT' in order_type
+                    
+                    if (cancel_sl and is_sl) or (cancel_tp and is_tp):
+                        client.futures_cancel_algo_order(symbol=symbol, algoId=order.get('algoId'))
+                        
+        await asyncio.to_thread(_selective_cancel)
+
     except Exception as e:
         print(f"Error canceling open orders for {symbol}: {e}")
 
@@ -592,7 +480,15 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         # Required margin = notional_value / leverage
         # This prevents the -2019 "Margin is insufficient" crash
         required_margin = notional_value / LEVERAGE
-        available_balance = usdt_balance  # This is the available (free) balance
+        
+        # Fetch fresh available balance to ensure we have enough free margin
+        _balance_data = await asyncio.to_thread(client.futures_account_balance)
+        available_balance = 0.0
+        for asset in _balance_data:
+            if asset['asset'] == 'USDT':
+                available_balance = float(asset['availableBalance'])
+                break
+                
         if required_margin > available_balance * 0.90:  # Leave 10% buffer for fees + slippage
             print(f"❌ Insufficient margin for {symbol}: Need ${required_margin:.2f}, Available: ${available_balance:.2f}")
             from src.detailed_logger import log_rejected_signal
@@ -630,6 +526,9 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         # Track entry timestamp for time-based exits
         from src.state_manager import bot_state
         bot_state.entry_timestamps[symbol] = time.time()
+        bot_state.entry_quantities[symbol] = abs(total_quantity)
+        bot_state.entry_reasons[symbol] = reason_to_open
+        bot_state.save_state()
 
         # --- Place the Stop-Loss Order Immediately After ---
         stop_loss_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
@@ -723,84 +622,144 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
         # --- Place the Take-Profit Order ---
         take_profit_side = SIDE_SELL if side == SIDE_BUY else SIDE_BUY
         
-        # Calculate take-profit price based on RR ratio if not provided dynamically
-        if take_profit_price is None:
-            if side == SIDE_BUY:
-                take_profit_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
-            else:  # SIDE_SELL
-                take_profit_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
-                
-            print(f"   Risk-Reward Ratio: {RR_RATIO_TP1}:1")
-        else:
-            # --- Safety check: Dynamic TP must deliver at least 1:1 R:R ---
-            # If the Fibonacci target is too close to entry, the fees alone
-            # will wipe out the profit. Override with 1.5x R:R fallback.
-            tp_distance = abs(take_profit_price - limit_price)
-            if tp_distance < stop_loss_distance:
-                print(f"   \u26a0\ufe0f Dynamic TP ${take_profit_price} is too close (R:R < 1:1) — overriding with 1.5x R:R")
-                if side == SIDE_BUY:
-                    take_profit_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
-                else:
-                    take_profit_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
-                print(f"   \u2705 Safe TP: ${take_profit_price}")
-            else:
-                print(f"   Target: Dynamic Institutional Level")
+        from config.settings import ENABLE_TIERED_TP, TP_TIERS
         
-        take_profit_price = round_price(symbol, take_profit_price)
-        
-        # --- Pre-flight check: Prevent "Order would immediately trigger" (-2021) ---
-        # If the market already blew past the TP target before we placed it,
-        # Binance will reject with -2021. Detect this and recalculate a safe TP.
-        current_market = await asyncio.to_thread(get_market_price, symbol)
-        if current_market:
-            tp_would_trigger = False
-            if side == SIDE_BUY and take_profit_price <= current_market:
-                tp_would_trigger = True
-            elif side == SIDE_SELL and take_profit_price >= current_market:
-                tp_would_trigger = True
-            
-            if tp_would_trigger:
-                print(f"   ⚠️ TP ${take_profit_price} already past market ${current_market} — recalculating...")
-                # Fallback: use 1.5x R:R from current price instead
-                if side == SIDE_BUY:
-                    take_profit_price = round_price(symbol, current_market + (stop_loss_distance * RR_RATIO_TP1))
-                else:
-                    take_profit_price = round_price(symbol, current_market - (stop_loss_distance * RR_RATIO_TP1))
-                print(f"   ✅ Recalculated TP: ${take_profit_price}")
-                sys.stdout.flush()
-        
-        print(f"\n╭───────────────────────────────────────────────────╮")
-        print(f"│ 🎯 LOCKING TARGET: TAKE PROFIT DEPLOYMENT         │")
-        print(f"╰───────────────────────────────────────────────────╯")
-        print(f"  ▶ Engine:   Algo Order API (TAKE_PROFIT_MARKET)")
-        print(f"  ▶ Target:   ${take_profit_price}")
-        print(f"  ▶ Action:   {take_profit_side}")
-        sys.stdout.flush()
-        
-        # TAKE PROFIT PLACEMENT: Use new Algo Order API (required since Dec 9, 2025)
-        try:
-            print(f"   Attempting: Algo Order API with CONTRACT_PRICE...")
+        # If no dynamic TP is provided and Tiered TP is enabled, we loop through tiers
+        if take_profit_price is None and ENABLE_TIERED_TP:
+            print(f"\n╭───────────────────────────────────────────────────╮")
+            print(f"│ 🎯 LOCKING TARGETS: TIERED TAKE PROFIT DEPLOYMENT │")
+            print(f"╰───────────────────────────────────────────────────╯")
             sys.stdout.flush()
-            tp_order = await asyncio.to_thread(
-                place_algo_take_profit,
-                symbol,
-                take_profit_side,
-                take_profit_price,
-                total_quantity,
-                'CONTRACT_PRICE'
-            )
-            print(f"  ───────────────────────────────────────────────────")
-            print(f"  ✅ TAKE PROFIT DEPLOYED [CONTRACT_PRICE | ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}]")
-            print(f"\n🚀 TRADE FULLY SECURED AND LIVE. AWAITING MARKET REACTION.")
+            
+            remaining_qty = total_quantity
+            
+            # Fetch market price once for pre-flight checks
+            current_market = await asyncio.to_thread(get_market_price, symbol)
+            
+            for i, tier in enumerate(TP_TIERS):
+                tier_rr = tier['rr']
+                tier_size_pct = tier['size_percent']
+                
+                # Calculate target price
+                if side == SIDE_BUY:
+                    tier_price = limit_price + (stop_loss_distance * tier_rr)
+                else:
+                    tier_price = limit_price - (stop_loss_distance * tier_rr)
+                tier_price = round_price(symbol, tier_price)
+                
+                # Pre-flight check: Prevent "-2021 Order would immediately trigger"
+                if current_market:
+                    tp_would_trigger = False
+                    if side == SIDE_BUY and tier_price <= current_market:
+                        tp_would_trigger = True
+                    elif side == SIDE_SELL and tier_price >= current_market:
+                        tp_would_trigger = True
+                        
+                    if tp_would_trigger:
+                        print(f"   ⚠️ Tier {i+1} TP ${tier_price} already past market ${current_market} — recalculating...")
+                        if side == SIDE_BUY:
+                            tier_price = round_price(symbol, current_market + (stop_loss_distance * tier_rr))
+                        else:
+                            tier_price = round_price(symbol, current_market - (stop_loss_distance * tier_rr))
+                        print(f"   ✅ Recalculated Tier {i+1} TP: ${tier_price}")
+                
+                # Calculate quantity
+                if i == len(TP_TIERS) - 1:
+                    # Final tier sweeps the rest to avoid dust
+                    tier_qty = round_quantity(symbol, remaining_qty)
+                else:
+                    tier_qty = round_quantity(symbol, total_quantity * tier_size_pct)
+                    remaining_qty -= tier_qty
+                
+                if tier_qty <= 0:
+                    continue
+                
+                print(f"  ▶ Tier {i+1}: {tier_size_pct*100}% at {tier_rr}R (Target: ${tier_price}, Qty: {tier_qty})")
+                sys.stdout.flush()
+                
+                try:
+                    tp_order = await asyncio.to_thread(
+                        place_algo_take_profit,
+                        symbol,
+                        take_profit_side,
+                        tier_price,
+                        tier_qty,
+                        'CONTRACT_PRICE'
+                    )
+                    print(f"  ✅ TIER {i+1} DEPLOYED [CONTRACT_PRICE]")
+                except Exception as tp_error:
+                    try:
+                        tp_order = await asyncio.to_thread(
+                            place_algo_take_profit,
+                            symbol,
+                            take_profit_side,
+                            tier_price,
+                            tier_qty,
+                            'MARK_PRICE'
+                        )
+                        print(f"  ✅ TIER {i+1} DEPLOYED [MARK_PRICE]")
+                    except Exception as tp_error_2:
+                        print(f"  ⚠️ FAILED TO DEPLOY TIER {i+1}: {tp_error_2}")
+                sys.stdout.flush()
+                
+            print(f"\n🚀 TIERED SCALING FULLY SECURED. AWAITING MARKET REACTION.")
             print(f"{'='*70}\n")
             sys.stdout.flush()
-        except Exception as tp_error:
-            print(f"   ⚠️ Failed with Algo API CONTRACT_PRICE: {tp_error}")
+            
+            return True
+
+        else:
+            # --- Standard / Dynamic Single Take-Profit Logic ---
+            if take_profit_price is None:
+                if side == SIDE_BUY:
+                    take_profit_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
+                else:  # SIDE_SELL
+                    take_profit_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
+                    
+                print(f"   Risk-Reward Ratio: {RR_RATIO_TP1}:1")
+            else:
+                # --- Safety check: Dynamic TP must deliver at least 1:1 R:R ---
+                tp_distance = abs(take_profit_price - limit_price)
+                if tp_distance < stop_loss_distance:
+                    print(f"   ⚠️ Dynamic TP ${take_profit_price} is too close (R:R < 1:1) — overriding with 1.5x R:R")
+                    if side == SIDE_BUY:
+                        take_profit_price = limit_price + (stop_loss_distance * RR_RATIO_TP1)
+                    else:
+                        take_profit_price = limit_price - (stop_loss_distance * RR_RATIO_TP1)
+                    print(f"   ✅ Safe TP: ${take_profit_price}")
+                else:
+                    print(f"   Target: Dynamic Institutional Level")
+            
+            take_profit_price = round_price(symbol, take_profit_price)
+            
+            # --- Pre-flight check: Prevent "-2021" ---
+            current_market = await asyncio.to_thread(get_market_price, symbol)
+            if current_market:
+                tp_would_trigger = False
+                if side == SIDE_BUY and take_profit_price <= current_market:
+                    tp_would_trigger = True
+                elif side == SIDE_SELL and take_profit_price >= current_market:
+                    tp_would_trigger = True
+                
+                if tp_would_trigger:
+                    print(f"   ⚠️ TP ${take_profit_price} already past market ${current_market} — recalculating...")
+                    if side == SIDE_BUY:
+                        take_profit_price = round_price(symbol, current_market + (stop_loss_distance * RR_RATIO_TP1))
+                    else:
+                        take_profit_price = round_price(symbol, current_market - (stop_loss_distance * RR_RATIO_TP1))
+                    print(f"   ✅ Recalculated TP: ${take_profit_price}")
+                    sys.stdout.flush()
+            
+            print(f"\n╭───────────────────────────────────────────────────╮")
+            print(f"│ 🎯 LOCKING TARGET: TAKE PROFIT DEPLOYMENT         │")
+            print(f"╰───────────────────────────────────────────────────╯")
+            print(f"  ▶ Engine:   Algo Order API (TAKE_PROFIT_MARKET)")
+            print(f"  ▶ Target:   ${take_profit_price}")
+            print(f"  ▶ Action:   {take_profit_side}")
             sys.stdout.flush()
             
-            # TRY #2: Algo API with MARK_PRICE
             try:
-                print(f"   Attempting: Algo Order API with MARK_PRICE...")
+                print(f"   Attempting: Algo Order API with CONTRACT_PRICE...")
                 sys.stdout.flush()
                 tp_order = await asyncio.to_thread(
                     place_algo_take_profit,
@@ -808,25 +767,49 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
                     take_profit_side,
                     take_profit_price,
                     total_quantity,
-                    'MARK_PRICE'
+                    'CONTRACT_PRICE'
                 )
                 print(f"  ───────────────────────────────────────────────────")
-                print(f"  ✅ TAKE PROFIT DEPLOYED [MARK_PRICE | ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}]")
+                print(f"  ✅ TAKE PROFIT DEPLOYED [CONTRACT_PRICE | ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}]")
                 print(f"\n🚀 TRADE FULLY SECURED AND LIVE. AWAITING MARKET REACTION.")
                 print(f"{'='*70}\n")
                 sys.stdout.flush()
-            except Exception as tp_error_2:
-                print(f"⚠️⚠️⚠️ FAILED TO PLACE TAKE PROFIT ⚠️⚠️⚠️")
-                print(f"   Symbol: {symbol}")
-                print(f"   Stop loss is active but NO TAKE PROFIT!")
-                print(f"   Error: {tp_error_2}")
-                print(f"{'='*70}\n")
+            except Exception as tp_error:
+                print(f"   ⚠️ Failed with Algo API CONTRACT_PRICE: {tp_error}")
                 sys.stdout.flush()
-                # Continue anyway - stop loss is more critical
-        
-        return True
+                try:
+                    print(f"   Attempting: Algo Order API with MARK_PRICE...")
+                    sys.stdout.flush()
+                    tp_order = await asyncio.to_thread(
+                        place_algo_take_profit,
+                        symbol,
+                        take_profit_side,
+                        take_profit_price,
+                        total_quantity,
+                        'MARK_PRICE'
+                    )
+                    print(f"  ───────────────────────────────────────────────────")
+                    print(f"  ✅ TAKE PROFIT DEPLOYED [MARK_PRICE | ID: {tp_order.get('orderId', tp_order.get('algoId', 'N/A'))}]")
+                    print(f"\n🚀 TRADE FULLY SECURED AND LIVE. AWAITING MARKET REACTION.")
+                    print(f"{'='*70}\n")
+                    sys.stdout.flush()
+                except Exception as tp_error_2:
+                    print(f"⚠️⚠️⚠️ FAILED TO PLACE TAKE PROFIT ⚠️⚠️⚠️")
+                    print(f"   Symbol: {symbol}")
+                    print(f"   Stop loss is active but NO TAKE PROFIT!")
+                    print(f"   Error: {tp_error_2}")
+                    print(f"{'='*70}\n")
+                    sys.stdout.flush()
+            
+            return True
 
     except Exception as e:
+        if "-4411" in str(e) or "TradFi-Perps" in str(e):
+            print(f"\n⚠️  [Agreement Required] {symbol} requires TradFi-Perps agreement. Bypassing permanently.")
+            from src.state_manager import bot_state
+            bot_state.unsigned_agreement_symbols.add(symbol)
+            return False
+            
         print(f"\n❌❌❌ EXCEPTION IN PLACE_ORDER ❌❌❌")
         print(f"Symbol: {symbol}")
         print(f"Error: {e}")
@@ -854,7 +837,13 @@ def close_position(symbol, side, quantity, reason_to_close):
             symbol=symbol, side=side, type=ORDER_TYPE_MARKET, quantity=quantity, reduceOnly=True
         )
         
-        exit_price = float(order['avgPrice'])
+        exit_price = float(order.get('avgPrice', 0))
+        if exit_price == 0.0:
+            from data.get_data import get_market_price
+            exit_price = get_market_price(symbol)
+            if not exit_price:
+                exit_price = entry_price # fallback to prevent 0.0 math errors
+        
         # Fetch a fresh balance after closing — get_usdt_balance requires balance_data arg
         _balance_data = client.futures_account_balance()
         new_usdt_balance = get_usdt_balance(_balance_data)
@@ -881,6 +870,7 @@ def close_position(symbol, side, quantity, reason_to_close):
         from src.state_manager import bot_state
         with bot_state._pnl_lock:
             bot_state.daily_pnl += pnl
+        bot_state.entry_reasons.pop(symbol, None)
         
         # Calculate ROI using the configured LEVERAGE (imported from settings)
         # ROI = (PnL / Initial Margin) * 100
@@ -896,7 +886,26 @@ def close_position(symbol, side, quantity, reason_to_close):
             "timestamp": pd.Timestamp.now().isoformat()
         })
         
-        # Log to CSV file with PnL and ROI for dashboard
+        # Map reason_to_close → machine-readable exit type tag
+        reason_lower = reason_to_close.lower()
+        if 'time-based' in reason_lower or 'time based' in reason_lower:
+            exit_type = 'TIME_BASED'
+        elif 'funding rate' in reason_lower:
+            exit_type = 'FUNDING_RATE'
+        elif 'market structure' in reason_lower or 'swing low' in reason_lower or 'swing high' in reason_lower:
+            exit_type = 'MARKET_STRUCTURE_BREAK'
+        elif 'stochastic' in reason_lower or 'profit take' in reason_lower:
+            exit_type = 'STOCH_EXTREME'
+        elif 'emergency' in reason_lower or 'drawdown' in reason_lower:
+            exit_type = 'EMERGENCY'
+        elif 'trailing' in reason_lower or 'breakeven' in reason_lower:
+            exit_type = 'TRAILING_STOP'
+        elif 'manual' in reason_lower:
+            exit_type = 'MANUAL'
+        else:
+            exit_type = 'BOT_SIGNAL'
+
+        # Log to CSV file with PnL, ROI, and exit type for dashboard
         log_trade_exit(
             symbol=symbol,
             side=position_side,
@@ -905,7 +914,8 @@ def close_position(symbol, side, quantity, reason_to_close):
             quantity=float(quantity),
             pnl=pnl,
             exit_reason=reason_to_close,
-            roi=roi
+            roi=roi,
+            exit_type=exit_type
         )
         
         print(f"✅ Position closed for {symbol}. Gross: ${gross_pnl:.2f} | Fees: ${total_fees:.2f} | Net PnL: ${pnl:.2f} | ROI: {roi:.2f}%")
@@ -930,14 +940,8 @@ async def set_margin_type(symbol, margin_type='ISOLATED'):
                 return
         
         # Margin type change is needed — cancel orders first to avoid -4067
-        open_orders = await asyncio.to_thread(client.futures_get_open_orders, symbol=symbol)
-        if open_orders:
-            print(f"⚠️ Margin type change needed for {symbol}. Cancelling {len(open_orders)} order(s)...")
-            for order in open_orders:
-                try:
-                    await asyncio.to_thread(client.futures_cancel_order, symbol=symbol, orderId=order['orderId'])
-                except Exception as cancel_error:
-                    print(f"   ⚠️ Failed to cancel order {order.get('orderId', 'N/A')}: {cancel_error}")
+        print(f"⚠️  Margin type change needed for {symbol}. Cancelling all orders...")
+        await cancel_open_orders(symbol, cancel_sl=True, cancel_tp=True)
         
         await asyncio.to_thread(client.futures_change_margin_type, symbol=symbol, marginType=margin_type)
         if VERBOSE_LOGGING:

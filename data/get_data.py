@@ -7,7 +7,7 @@ from scipy.signal import argrelextrema
 import time
 from functools import lru_cache
 
-from data.indicators import calculate_stoch, add_price_sma, calculate_macd, PERIOD, K, D
+from data.indicators import calculate_stoch, add_price_sma, calculate_macd, calculate_bollinger_bands, PERIOD, K, D
 from src.state_manager import bot_state
 
 from config.client import client
@@ -33,6 +33,7 @@ def fetch_multi_timeframe_data(symbol, short_interval, mid_interval, long_interv
     # Use 350 bars for the short TF: enough for VWAP and BOS calculations
     df_short, support_short, resistance_short = fetch_klines(symbol, short_interval, lookback='350')
     df_short = calculate_macd(df_short)  # Add MACD for short timeframe
+    df_short = calculate_bollinger_bands(df_short)  # Add Bollinger Bands for mean-reversion guard
 
     # Fetch 1h data for multi-timeframe stochastic confirmation
     df_1h, _, _ = fetch_klines(symbol, '1h', lookback='150')
@@ -81,11 +82,12 @@ def get_symbol_info(symbol):
 
 def get_usdt_balance(balance_data):
     """
-    MODIFIED: Extracts the AVAILABLE USDT balance.
+    MODIFIED: Extracts the TOTAL USDT wallet balance for consistent position sizing.
+    If we used availableBalance, position sizes would shrink with every concurrent trade!
     """
     for asset in balance_data:
         if asset['asset'] == 'USDT':
-            return float(asset['availableBalance'])
+            return float(asset['balance'])
     return 0.0
 
 def get_position(symbol, all_positions):

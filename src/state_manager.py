@@ -16,6 +16,8 @@ class BotState:
         self.partial_tp2_taken = {}  # Track if second partial profit (3R) has been taken
         # Tier 1 Exit Tracking
         self.entry_timestamps = {}  # Track when positions were opened
+        self.entry_quantities = {}  # Track exact position size on entry for dynamic breakeven
+        self.entry_reasons = {}     # Track the strategy entry reason for active trades
         self.last_exit_timestamps = {}  # Tracks symbol-specific cooldowns: {symbol: timestamp}
         self.unsigned_agreement_symbols = set()  # Tracks symbols requiring unsigned TradFi agreements
         
@@ -28,6 +30,41 @@ class BotState:
         self.daily_pnl = 0.0
         self.last_pnl_reset_date = None
         self.initialize_daily_pnl()
+        self.load_state()
+
+    def load_state(self):
+        import os
+        import json
+        state_path = 'logs/bot_state.json'
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.partial_tp1_taken = data.get('partial_tp1_taken', {})
+                    self.partial_tp2_taken = data.get('partial_tp2_taken', {})
+                    self.breakeven_triggered = data.get('breakeven_triggered', {})
+                    self.entry_timestamps = data.get('entry_timestamps', {})
+                    self.entry_quantities = data.get('entry_quantities', {})
+                    self.entry_reasons = data.get('entry_reasons', {})
+            except Exception as e:
+                print(f"Error loading bot state: {e}")
+
+    def save_state(self):
+        import json
+        state_path = 'logs/bot_state.json'
+        try:
+            data = {
+                'partial_tp1_taken': self.partial_tp1_taken,
+                'partial_tp2_taken': self.partial_tp2_taken,
+                'breakeven_triggered': self.breakeven_triggered,
+                'entry_timestamps': self.entry_timestamps,
+                'entry_quantities': self.entry_quantities,
+                'entry_reasons': self.entry_reasons
+            }
+            with open(state_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(f"Error saving bot state: {e}")
 
     def initialize_daily_pnl(self):
         import pandas as pd

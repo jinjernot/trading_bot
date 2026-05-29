@@ -102,10 +102,13 @@ def _build_logged_trade_keys() -> set:
 def _write_backfill_row(symbol: str, side: str, entry_price: float,
                          exit_price: float, quantity: float,
                          pnl: float, roi: float, exit_time_ms: int,
-                         exit_reason: str = 'BINANCE_SYNC'):
+                         exit_reason: str = 'BINANCE_SYNC',
+                         exit_type: str = 'EXCHANGE_SL_TP'):
     """
     Appends a single backfilled trade row to the CSV log.
     Marks source as BINANCE_SYNC so it's distinguishable from bot-logged trades.
+    exit_type is always EXCHANGE_SL_TP for backfilled rows — we can't know
+    whether Binance closed via SL, TP, or liquidation from trade history alone.
     """
     file_exists = os.path.isfile(TRADE_LOG_CSV)
     exit_time_str = datetime.fromtimestamp(exit_time_ms / 1000, tz=timezone.utc).isoformat()
@@ -115,7 +118,7 @@ def _write_backfill_row(symbol: str, side: str, entry_price: float,
         if not file_exists:
             writer.writerow([
                 'Timestamp', 'Symbol', 'Side', 'Entry_Price', 'Exit_Price',
-                'Quantity', 'PnL_USDT', 'ROI_Percent', 'Exit_Reason', 'Notes'
+                'Quantity', 'PnL_USDT', 'ROI_Percent', 'Exit_Reason', 'Exit_Type', 'Notes'
             ])
         writer.writerow([
             exit_time_str,
@@ -127,6 +130,7 @@ def _write_backfill_row(symbol: str, side: str, entry_price: float,
             round(pnl, 4),
             round(roi, 4),
             exit_reason,
+            exit_type,
             'Backfilled from Binance history — bot was offline'
         ])
 
@@ -279,8 +283,9 @@ def reconcile_trades(symbols: list, verbose: bool = True) -> dict:
 
                 if verbose:
                     status_marker = 'OK' if net_pnl > 0 else 'LOSS'
+                    local_time_str = datetime.fromtimestamp(event['time'] / 1000).strftime('%I:%M %p %b %d')
                     print(f"  [{status_marker}] BACKFILLED: {symbol} {position_side} | "
-                          f"Net PnL: ${net_pnl:.4f} (Fees: ${total_fees:.4f}) | ROI: {roi:.2f}% | {event_dt.strftime('%H:%M %b %d')}")
+                          f"Net PnL: ${net_pnl:.4f} (Fees: ${total_fees:.4f}) | ROI: {roi:.2f}% | {local_time_str}")
 
         except Exception as e:
             error_msg = f"{symbol}: {e}"

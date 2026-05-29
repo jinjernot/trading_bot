@@ -15,6 +15,7 @@ from src.trade import manage_active_trades, cancel_open_orders
 from src.state_manager import bot_state
 from src.reconciler import reconcile_trades
 from config.settings import *
+from config.settings import BANNED_TRADING_HOURS_UTC, EXCLUDED_SYMBOLS
 from config.bot_info import get_startup_message
 
 # --- Import All Strategy Functions ---
@@ -22,8 +23,7 @@ from src.fib_strategy import check_fib_pullback_long_entry, check_fib_retrace_sh
 from src.open_position import open_position_long, open_position_short
 from src.bos_strategy import check_bos_breakout_long, check_bos_breakout_short
 from src.reversal_strategy import check_reversal_long_entry, check_reversal_short_entry
-
-
+from src.vwap_strategy import check_vwap_pullback_long, check_vwap_pullback_short
 from config.client import client
 
 trade_lock = asyncio.Lock()
@@ -117,6 +117,24 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
         
         # --- Entry Logic (for new trades) ---
         if position == 0:
+            # --- Double Entry Guard ---
+            # Prevent opening a new position if we already have one tracked locally (e.g. due to Binance API sync lag)
+            if symbol in bot_state.entry_timestamps:
+                if VERBOSE_LOGGING:
+                    print(f"⏳ Skipping scan for {symbol}: Position already tracked locally as open (waiting for Binance sync).")
+                return
+
+            # --- ADX 1H Regime Gate ---
+            # Calculate ADX on 1H timeframe to detect if the market is choppy/ranging
+            df_1h = calculate_adx(df_1h)
+            adx_1h = df_1h['ADX'].iloc[-1]
+            if adx_1h < 20:
+                if VERBOSE_LOGGING:
+                    print(f"⏸️  ADX 1H Choppy Filter active for {symbol}: 1H ADX is {adx_1h:.2f} (< 20). Skipping new entries.")
+                from src.detailed_logger import log_rejected_signal
+                log_rejected_signal(symbol, 'ENTRY', {'1H_ADX': adx_1h}, "Choppy Market regime (1H ADX < 20)")
+                return
+
             # Global Daily Drawdown Circuit Breaker
             current_date = pd.Timestamp.utcnow().date()
             if current_date != bot_state.last_pnl_reset_date:
@@ -181,8 +199,15 @@ async def process_symbol(symbol, all_positions, balance_data, funding_rates_map)
                     if not reversal_trade_taken:
                         reversal_trade_taken = await check_reversal_short_entry(symbol, df_15m, df_4h, stoch_k_1h, current_usdt_balance, resistance_4h)
 
-                # 4. If no Fib, BOS, or Reversal, fall back to Stochastic Pullback (B+ everyday grinder)
-                if ENABLE_STOCH_STRATEGY and not fib_trade_taken and not bos_trade_taken and not reversal_trade_taken:
+                # 4. If no Fib, BOS, or Reversal, check for VWAP Trend Pullback (Institutional anchor)
+                vwap_trade_taken = False
+                if ENABLE_VWAP_STRATEGY and not fib_trade_taken and not bos_trade_taken and not reversal_trade_taken:
+                    vwap_trade_taken = await check_vwap_pullback_long(symbol, df_15m, df_4h, current_usdt_balance, support_4h, resistance_4h)
+                    if not vwap_trade_taken:
+                        vwap_trade_taken = await check_vwap_pullback_short(symbol, df_15m, df_4h, current_usdt_balance, support_4h, resistance_4h)
+
+                # 5. If no Fib, BOS, Reversal, or VWAP, fall back to Stochastic Pullback (B+ everyday grinder)
+                if ENABLE_STOCH_STRATEGY and not fib_trade_taken and not bos_trade_taken and not reversal_trade_taken and not vwap_trade_taken:
                     general_trade_taken = await open_position_long(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, current_usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
                     if not general_trade_taken:
                         await open_position_short(symbol, df_15m, df_4h, stoch_k_15m, stoch_d_15m, stoch_k_1h, stoch_d_1h, current_usdt_balance, None, None, atr_value_15m, funding_rate, support_4h, resistance_4h)
@@ -237,6 +262,11 @@ async def main_trading_loop():
                     print(f"❄️ [Exchange Exit Detected] {symbol} position closed. Applying symbol cooldown lockout and nuking orphan orders.")
                     await cancel_open_orders(symbol)
                     bot_state.last_exit_timestamps[symbol] = time.time()
+                    bot_state.breakeven_triggered.pop(symbol, None)
+                    bot_state.partial_tp1_taken.pop(symbol, None)
+                    bot_state.partial_tp2_taken.pop(symbol, None)
+                    bot_state.entry_timestamps.pop(symbol, None)
+                    bot_state.entry_reasons.pop(symbol, None)
                     
             previously_active_symbols = current_active_symbols
 
@@ -247,23 +277,43 @@ async def main_trading_loop():
                 print(f"📊 Managing {len(active_positions)} active trade(s)")
                 await manage_active_trades(active_positions)
             
+            active_symbols = {p['symbol'] for p in active_positions}
+            symbols_to_process = list(active_symbols)
+
             if len(active_positions) >= MAX_CONCURRENT_TRADES:
                 print(f"⏸️  Max concurrent trades reached ({len(active_positions)}/{MAX_CONCURRENT_TRADES})")
             else:
-                available_slots = MAX_CONCURRENT_TRADES - len(active_positions)
-                active_symbols = {p['symbol'] for p in active_positions}
-                symbols_to_check = [s for s in symbols if s not in active_symbols]
-                
-                print(f"🔍 Scanning {len(symbols_to_check)} symbols for entry signals...")
-                await asyncio.to_thread(get_global_btc_trend)
-                prev_trend = getattr(bot_state, '_prev_btc_trend', None)
-                if prev_trend != bot_state.global_btc_trend:
-                    print(f"🌍 Global BTC Trend CHANGED: {prev_trend} → {bot_state.global_btc_trend}")
-                    bot_state._prev_btc_trend = bot_state.global_btc_trend
+                # --- Hour Gate: Block new entries during known low-quality hours ---
+                current_utc_hour = pd.Timestamp.utcnow().hour
+                if current_utc_hour in BANNED_TRADING_HOURS_UTC:
+                    print(f"🕐 Hour filter active: {current_utc_hour:02d}:xx UTC is a banned trading hour. Skipping new entries (managing existing trades only).")
+                    symbols_to_check = []  # Block all new entries this cycle
                 else:
-                    print(f"🌍 Global BTC Trend: {bot_state.global_btc_trend}")
-                tasks = [process_symbol(symbol, all_positions, balance_data, funding_rates_map) for symbol in symbols_to_check]
-                await asyncio.gather(*tasks)
+                    symbols_to_check = [s for s in symbols if s not in active_symbols]
+                    # --- Excluded symbols: skip known underperformers ---
+                    excluded_this_cycle = [s for s in symbols_to_check if s in EXCLUDED_SYMBOLS]
+                    symbols_to_check = [s for s in symbols_to_check if s not in EXCLUDED_SYMBOLS]
+                    if excluded_this_cycle and VERBOSE_LOGGING:
+                        print(f"⛔ Excluded {len(excluded_this_cycle)} symbol(s) from scanning: {', '.join(excluded_this_cycle)}")
+                print(f"🔍 Scanning {len(symbols_to_check)} symbols for entry signals...")
+                symbols_to_process.extend(symbols_to_check)
+                
+            await asyncio.to_thread(get_global_btc_trend)
+            prev_trend = getattr(bot_state, '_prev_btc_trend', None)
+            if prev_trend != bot_state.global_btc_trend:
+                print(f"🌍 Global BTC Trend CHANGED: {prev_trend} → {bot_state.global_btc_trend}")
+                bot_state._prev_btc_trend = bot_state.global_btc_trend
+            else:
+                print(f"🌍 Global BTC Trend: {bot_state.global_btc_trend}")
+                
+            # Throttle concurrency to prevent Binance API rate limits and connection pool timeouts
+            semaphore = asyncio.Semaphore(10)
+            async def bounded_process(symbol):
+                async with semaphore:
+                    await process_symbol(symbol, all_positions, balance_data, funding_rates_map)
+                    
+            tasks = [bounded_process(symbol) for symbol in symbols_to_process]
+            await asyncio.gather(*tasks)
 
         except Exception as e:
             error_msg = f"Error in main loop: {e}"
@@ -272,6 +322,7 @@ async def main_trading_loop():
         print(f"\n{'='*60}")
         print(f"✅ Cycle #{cycle_count} complete - Next cycle in 60s")
         print(f"{'='*60}\n")
+        bot_state.save_state()
         await asyncio.sleep(60)
 
 if __name__ == "__main__":

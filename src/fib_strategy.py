@@ -60,12 +60,12 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
     golden_pocket_bottom = fib_618 - (fib_618 - fib_786) * 0.5  # midpoint toward 0.786
     price_in_golden_pocket = golden_pocket_bottom <= last_close_15m <= golden_pocket_top
 
-    # --- Core Condition 3: ROC Momentum Quality Filter ---
-    # Confirm the trend still has ACTIVE upward momentum.
-    # Prevents entering a pullback that is actually a full trend reversal.
-    df_15m = calculate_roc(df_15m, period=10)
-    roc_value = df_15m['roc'].iloc[-1]
-    has_bullish_momentum = roc_value > ROC_MOMENTUM_THRESHOLD  # Confirms active momentum using unified threshold
+    # --- VWAP Confluence Check ---
+    if 'vwap' not in df_15m.columns:
+        return False
+    vwap_price = df_15m['vwap'].iloc[-1]
+    # VWAP must be within 0.5% of the 0.618 Fib level
+    is_vwap_confluent = abs(vwap_price - fib_618) / fib_618 <= 0.005
 
     # --- Volume Profile (VPVR) Check — Institutional Value Area ---
     poc_price, vah_price, val_price = calculate_volume_profile_full(df_15m, bins=50)
@@ -73,10 +73,8 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
     is_in_value_area_low = fib_618 <= val_price * 1.01
     is_vpvr_confluent = is_near_poc or is_in_value_area_low
 
-    if price_in_golden_pocket and has_bullish_momentum and is_vpvr_confluent:
+    if price_in_golden_pocket and is_vwap_confluent and is_vpvr_confluent:
         # --- Calculate all confirmation indicators ---
-        df_15m = calculate_hull_moving_average(df_15m, period=14)
-        df_15m = calculate_bollinger_bands(df_15m, period=20)
         df_15m = add_candlestick_patterns(df_15m)
         df_15m = add_volume_sma(df_15m, period=20)
 
@@ -86,55 +84,28 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
             return False
 
         # --- Tally the confirmation signals ---
-        confirmation_score = 0
         confirmations = []
 
-        if df_15m['hma_14'].iloc[-1] > df_15m['hma_14'].iloc[-2]:
-            confirmation_score += 1
-            confirmations.append("HMA Sloping Up")
-        
-        # Check BB distance on the CLOSED candle (-2)
-        closed_low = df_15m['low'].iloc[-2]
-        lower_bb = df_15m['BB_Lower'].iloc[-2]
-        if abs(closed_low - lower_bb) / closed_low < 0.005: # Price within 0.5% of lower BB
-            confirmation_score += 1
-            confirmations.append("Near Lower Bollinger Band (Closed)")
-
         if df_15m['bullish_pattern'].iloc[-2] == 1:
-            confirmation_score += 1
             confirmations.append("Bullish Candlestick Pattern (Closed)")
 
         if df_15m['volume'].iloc[-2] > (df_15m['volume_sma_20'].iloc[-2] * 1.5):
-            confirmation_score += 1
             confirmations.append("Volume Spike (Closed)")
 
         # --- Check if the score meets the minimum requirement ---
-        if confirmation_score >= MINIMUM_CONFIRMATIONS:
+        if len(confirmations) > 0:
             # Calculate Fibonacci extension targets (institutional TP levels)
             ext_levels = calculate_fib_extensions(swing_low, swing_high, trend='long')
             tp3_price = ext_levels.get('1.272', 0)
             tp4_price = ext_levels.get('1.618', 0)
 
-            stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
-            last_rsi = df_15m['rsi'].iloc[-1] if 'rsi' in df_15m.columns else 0
-            hma_slope = df_15m['hma_14'].iloc[-1] - df_15m['hma_14'].iloc[-2]
-            bb_lower = df_15m['BB_Lower'].iloc[-1]
-            bb_distance_pct = abs(last_close_15m - bb_lower) / last_close_15m * 100
-
             print(f"\n{'='*70}")
             print(f"📊 FIBONACCI LONG ENTRY SIGNAL: {symbol}")
             print(f"{'='*70}")
             print(f"Entry Type: GOLDEN POCKET PULLBACK (Institutional)")
-            print(f"Confirmations: {confirmation_score}/4 - {', '.join(confirmations)}")
+            print(f"Confirmations: {len(confirmations)} - {', '.join(confirmations)}")
             print(f"\n--- Entry Zone ---")
             print(f"  Golden Pocket: {golden_pocket_bottom:.4f} – {golden_pocket_top:.4f}")
-            print(f"  ROC (10-bar momentum): {roc_value:+.3f}%")
-            print(f"\n--- 15-Minute Indicators ---")
-            print(f"  Stochastic K: {stoch_k_15m.iloc[-1]:.2f}")
-            print(f"  Stochastic D: {stoch_d_15m.iloc[-1]:.2f}")
-            print(f"  RSI: {last_rsi:.2f}")
-            print(f"  HMA Slope: {hma_slope:+.4f}")
-            print(f"  Distance from Lower BB: {bb_distance_pct:.2f}%")
             print(f"\n--- 4-Hour Trend ---")
             print(f"  ADX: {adx_4h:.2f}")
             print(f"  Price vs SMA50: {last_close_4h:.2f} vs {price_sma_4h:.2f}")
@@ -146,13 +117,14 @@ async def check_fib_pullback_long_entry(symbol, df_15m, df_4h, usdt_balance):
             print(f"  TP4 (1.618 ext): {tp4_price:.4f}")
             print(f"  Volume POC: {poc_price:.4f} | VAH: {vah_price:.4f} | VAL: {val_price:.4f}")
             print(f"  VPVR Confluent: {'Near POC' if is_near_poc else 'At/Below VAL'}")
+            print(f"  VWAP Confluent: {vwap_price:.4f} (Matches 0.618)")
             print(f"  Current Price: {last_close_15m:.4f}")
             print(f"{'='*70}\n")
 
             atr_value = df_15m['atr'].iloc[-1]
             order_placed = await place_order(
                 symbol=symbol, side=SIDE_BUY, usdt_balance=usdt_balance,
-                reason_to_open=f"Golden Pocket Fib {confirmation_score}/4 confirms | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
+                reason_to_open=f"Golden Pocket Fib ({', '.join(confirmations)}) | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
                 stop_loss_price=swing_low * (1 - FIB_STOP_BUFFER),
                 take_profit_price=tp3_price if tp3_price > 0 else None,
                 atr_value=atr_value, df=df_15m,
@@ -212,11 +184,12 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
     golden_pocket_top = fib_618 + (fib_786 - fib_618) * 0.5  # midpoint toward 0.786
     price_in_golden_pocket = golden_pocket_bottom <= last_close_15m <= golden_pocket_top
 
-    # --- Core Condition 3: ROC Momentum Quality Filter ---
-    # Confirm the downtrend still has ACTIVE bearish momentum.
-    df_15m = calculate_roc(df_15m, period=10)
-    roc_value = df_15m['roc'].iloc[-1]
-    has_bearish_momentum = roc_value < -ROC_MOMENTUM_THRESHOLD  # Confirms active momentum using unified threshold
+    # --- VWAP Confluence Check ---
+    if 'vwap' not in df_15m.columns:
+        return False
+    vwap_price = df_15m['vwap'].iloc[-1]
+    # VWAP must be within 0.5% of the 0.618 Fib level
+    is_vwap_confluent = abs(vwap_price - fib_618) / fib_618 <= 0.005
 
     # --- Volume Profile (VPVR) Check — Institutional Value Area ---
     poc_price, vah_price, val_price = calculate_volume_profile_full(df_15m, bins=50)
@@ -224,10 +197,8 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
     is_in_value_area_high = fib_618 >= vah_price * 0.99
     is_vpvr_confluent = is_near_poc or is_in_value_area_high
 
-    if price_in_golden_pocket and has_bearish_momentum and is_vpvr_confluent:
+    if price_in_golden_pocket and is_vwap_confluent and is_vpvr_confluent:
         # --- Calculate all confirmation indicators ---
-        df_15m = calculate_hull_moving_average(df_15m, period=14)
-        df_15m = calculate_bollinger_bands(df_15m, period=20)
         df_15m = add_candlestick_patterns(df_15m)
         df_15m = add_volume_sma(df_15m, period=20)
 
@@ -237,55 +208,28 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
             return False
 
         # --- Tally the confirmation signals ---
-        confirmation_score = 0
         confirmations = []
 
-        if df_15m['hma_14'].iloc[-1] < df_15m['hma_14'].iloc[-2]:
-            confirmation_score += 1
-            confirmations.append("HMA Sloping Down")
-
-        # Check BB distance on the CLOSED candle (-2)
-        closed_high = df_15m['high'].iloc[-2]
-        upper_bb = df_15m['BB_Upper'].iloc[-2]
-        if abs(closed_high - upper_bb) / closed_high < 0.005:
-            confirmation_score += 1
-            confirmations.append("Near Upper Bollinger Band (Closed)")
-
         if df_15m['bearish_pattern'].iloc[-2] == 1:
-            confirmation_score += 1
             confirmations.append("Bearish Candlestick Pattern (Closed)")
 
         if df_15m['volume'].iloc[-2] > (df_15m['volume_sma_20'].iloc[-2] * 1.5):
-            confirmation_score += 1
             confirmations.append("Volume Spike (Closed)")
 
         # --- Check if the score meets the minimum requirement ---
-        if confirmation_score >= MINIMUM_CONFIRMATIONS:
+        if len(confirmations) > 0:
             # Fibonacci extension targets (institutional TP levels below swing low)
             ext_levels = calculate_fib_extensions(swing_low, swing_high, trend='short')
             tp3_price = ext_levels.get('1.272', 0)
             tp4_price = ext_levels.get('1.618', 0)
 
-            stoch_k_15m, stoch_d_15m = calculate_stoch(df_15m['high'], df_15m['low'], df_15m['close'], 14, 3, 3)
-            last_rsi = df_15m['rsi'].iloc[-1] if 'rsi' in df_15m.columns else 0
-            hma_slope = df_15m['hma_14'].iloc[-1] - df_15m['hma_14'].iloc[-2]
-            upper_bb = df_15m['BB_Upper'].iloc[-1]
-            bb_distance_pct = abs(last_close_15m - upper_bb) / last_close_15m * 100
-
             print(f"\n{'='*70}")
             print(f"🔥 FIBONACCI SHORT ENTRY SIGNAL: {symbol}")
             print(f"{'='*70}")
             print(f"Entry Type: GOLDEN POCKET RETRACEMENT (Institutional)")
-            print(f"Confirmations: {confirmation_score}/4 - {', '.join(confirmations)}")
+            print(f"Confirmations: {len(confirmations)} - {', '.join(confirmations)}")
             print(f"\n--- Entry Zone ---")
             print(f"  Golden Pocket: {golden_pocket_bottom:.4f} – {golden_pocket_top:.4f}")
-            print(f"  ROC (10-bar momentum): {roc_value:+.3f}%")
-            print(f"\n--- 15-Minute Indicators ---")
-            print(f"  Stochastic K: {stoch_k_15m.iloc[-1]:.2f}")
-            print(f"  Stochastic D: {stoch_d_15m.iloc[-1]:.2f}")
-            print(f"  RSI: {last_rsi:.2f}")
-            print(f"  HMA Slope: {hma_slope:+.4f}")
-            print(f"  Distance from Upper BB: {bb_distance_pct:.2f}%")
             print(f"\n--- 4-Hour Trend ---")
             print(f"  ADX: {adx_4h:.2f}")
             print(f"  Price vs SMA50: {last_close_4h:.2f} vs {price_sma_4h:.2f}")
@@ -297,13 +241,14 @@ async def check_fib_retrace_short_entry(symbol, df_15m, df_4h, usdt_balance):
             print(f"  TP4 (1.618 ext): {tp4_price:.4f}")
             print(f"  Volume POC: {poc_price:.4f} | VAH: {vah_price:.4f} | VAL: {val_price:.4f}")
             print(f"  VPVR Confluent: {'Near POC' if is_near_poc else 'At/Above VAH'}")
+            print(f"  VWAP Confluent: {vwap_price:.4f} (Matches 0.618)")
             print(f"  Current Price: {last_close_15m:.4f}")
             print(f"{'='*70}\n")
 
             atr_value = df_15m['atr'].iloc[-1]
             order_placed = await place_order(
                 symbol=symbol, side=SIDE_SELL, usdt_balance=usdt_balance,
-                reason_to_open=f"Golden Pocket Fib {confirmation_score}/4 confirms | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
+                reason_to_open=f"Golden Pocket Fib ({', '.join(confirmations)}) | TP3={tp3_price:.4f} TP4={tp4_price:.4f}",
                 stop_loss_price=swing_high * (1 + FIB_STOP_BUFFER),
                 take_profit_price=tp3_price if tp3_price > 0 else None,
                 atr_value=atr_value, df=df_15m,

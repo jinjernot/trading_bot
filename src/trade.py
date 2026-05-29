@@ -523,6 +523,12 @@ async def place_order(symbol, side, usdt_balance, reason_to_open, support_4h, re
             "timestamp": pd.Timestamp.now().isoformat()
         })
         
+        # New: Log to CSV
+        from src.detailed_logger import log_trade_entry
+        indicators_dict = df.iloc[-1].to_dict() if df is not None else {}
+        indicators_dict['Reason'] = reason_to_open
+        log_trade_entry(symbol, side, logged_price, total_quantity, stop_loss_price, indicators_dict, usdt_balance)
+        
         # Track entry timestamp for time-based exits
         from src.state_manager import bot_state
         bot_state.entry_timestamps[symbol] = time.time()
